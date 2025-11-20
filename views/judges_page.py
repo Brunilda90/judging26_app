@@ -21,7 +21,7 @@ def show():
                 except sqlite3.IntegrityError:
                     st.error("Email already exists.")
 
-    st.subheader("Existing judges")
+    st.subheader("Current judges")
 
     # Load and display judge list
     judges = get_judges()
