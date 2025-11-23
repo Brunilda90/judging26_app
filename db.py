@@ -64,10 +64,12 @@ def init_db():
 # --- CRUD operations ---
 
 def get_judges():
+    # List judges in creation order
     conn = get_connection()
     return conn.execute("SELECT * FROM judges ORDER BY id").fetchall()
 
 def get_judges_with_user():
+    # Judges joined with their login username
     conn = get_connection()
     return conn.execute("""
         SELECT j.*, u.username
@@ -77,6 +79,7 @@ def get_judges_with_user():
     """).fetchall()
 
 def insert_judge(name, email):
+    # Insert judge without creating a user
     conn = get_connection()
     conn.execute("INSERT INTO judges (name, email) VALUES (?, ?)", (name, email))
     conn.commit()
@@ -101,10 +104,12 @@ def create_judge_account(name, email, username, password):
     return judge_id
 
 def get_judge_by_id(judge_id):
+    # Fetch single judge row
     conn = get_connection()
     return conn.execute("SELECT * FROM judges WHERE id = ?", (judge_id,)).fetchone()
 
 def update_judge_account(judge_id, name, email, username, password=None):
+    # Update judge profile and linked login; password optional
     conn = get_connection()
     cur = conn.cursor()
     try:
@@ -128,6 +133,7 @@ def update_judge_account(judge_id, name, email, username, password=None):
     conn.commit()
 
 def delete_judge_account(judge_id):
+    # Remove judge, their login, and their scores
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("DELETE FROM scores WHERE judge_id = ?", (judge_id,))
@@ -136,10 +142,12 @@ def delete_judge_account(judge_id):
     conn.commit()
 
 def get_competitors():
+    # List competitors in creation order
     conn = get_connection()
     return conn.execute("SELECT * FROM competitors ORDER BY id").fetchall()
 
 def insert_competitor(name):
+    # Add a competitor
     conn = get_connection()
     conn.execute(
         "INSERT INTO competitors (name) VALUES (?)",
@@ -148,6 +156,7 @@ def insert_competitor(name):
     conn.commit()
 
 def update_competitor(competitor_id, name):
+    # Rename a competitor
     conn = get_connection()
     conn.execute(
         "UPDATE competitors SET name = ? WHERE id = ?",
@@ -156,6 +165,7 @@ def update_competitor(competitor_id, name):
     conn.commit()
 
 def delete_competitor(competitor_id):
+    # Remove competitor and their scores
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("DELETE FROM scores WHERE competitor_id = ?", (competitor_id,))
@@ -176,10 +186,7 @@ def replace_scores_for_judge(judge_id, scores_dict):
     conn.commit()
 
 def get_scores_for_judge(judge_id):
-    """
-    Return existing scores for a judge as:
-      {competitor_id: value}
-    """
+    # Return existing scores for a judge as {competitor_id: value}
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
@@ -209,9 +216,11 @@ def get_leaderboard():
 # --- Auth helpers ---
 
 def hash_password(password: str) -> str:
+    # Simple SHA256 password hash
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 def create_default_admin_if_missing(conn):
+    # Seed a default admin if none exists
     cur = conn.execute("SELECT COUNT(*) AS cnt FROM users WHERE role = 'admin'")
     row = cur.fetchone()
     if row and row["cnt"] == 0:
@@ -221,6 +230,7 @@ def create_default_admin_if_missing(conn):
         )
 
 def authenticate_user(username, password):
+    # Validate credentials and return user row
     conn = get_connection()
     row = conn.execute(
         "SELECT * FROM users WHERE username = ?",

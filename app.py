@@ -17,7 +17,7 @@ def main():
         render_login()
         return
 
-    # Sidebar navigation
+    # Sidebar navigation + logout
     st.sidebar.title("Judging Tool")
     st.sidebar.write(f"Logged in as **{user['username']}** ({user['role']})")
     if st.sidebar.button("Log out"):
@@ -44,6 +44,7 @@ def main():
         leaderboard_page.show()
 
 def render_login():
+    # Simple login form that sets session on success
     st.title("Judging Tool")
     st.subheader("Login")
 

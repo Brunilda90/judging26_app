@@ -9,7 +9,7 @@ def show():
 
     st.header("Enter Scores")
 
-    # Load judges and competitors
+    # Load competitors for scoring
     competitors = get_competitors()
 
     judge_id = user.get("judge_id")
@@ -44,7 +44,7 @@ def show():
                     f"Score (ID {c['id']})",
                     min_value=0.0,
                     max_value=100.0,
-                    step=0.5,
+                    step=1.0,
                     value=float(existing_scores.get(c["id"], 0.0)),
                     # key includes judge_id so each judge gets independent widgets
                     key=f"score_{judge_id}_{c['id']}"

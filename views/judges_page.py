@@ -15,7 +15,7 @@ def show():
 
     st.header("Manage Judges")
 
-    # Form to add a new judge
+    # Form to add a new judge + login
     with st.form("add_judge"):
         name = st.text_input("Judge name")
         email = st.text_input("Judge email")
@@ -41,7 +41,7 @@ def show():
 
     st.subheader("Current judges")
 
-    # Load and display judge list
+    # Load and display judge list with edit/delete controls
     judges = get_judges_with_user()
     if not judges:
         st.info("No judges yet.")
@@ -49,6 +49,7 @@ def show():
 
     for judge in judges:
         with st.expander(f"{judge['name']} ({judge['email']})"):
+            # Inline edit form
             with st.form(f"edit_judge_{judge['id']}"):
                 name_val = st.text_input("Name", value=judge["name"])
                 email_val = st.text_input("Email", value=judge["email"])
@@ -73,6 +74,7 @@ def show():
                         except sqlite3.IntegrityError:
                             st.error("Email or username already exists.")
 
+            # Inline delete form
             with st.form(f"delete_judge_{judge['id']}"):
                 st.write("Delete this judge account and all their scores?")
                 delete_pressed = st.form_submit_button("Delete judge")

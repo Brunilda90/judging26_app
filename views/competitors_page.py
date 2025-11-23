@@ -23,7 +23,7 @@ def show():
 
     st.subheader("Current competitors")
 
-    # Load and display competitor list
+    # Load and display competitor list with edit/delete
     competitors = get_competitors()
     if not competitors:
         st.info("No competitors yet.")
@@ -31,6 +31,7 @@ def show():
 
     for comp in competitors:
         with st.expander(comp["name"]):
+            # Inline edit form
             with st.form(f"edit_comp_{comp['id']}"):
                 name_val = st.text_input("Name", value=comp["name"])
                 save = st.form_submit_button("Save changes")
@@ -42,8 +43,9 @@ def show():
                         st.success("Competitor updated.")
                         st.rerun()
 
+            # Inline delete form
             with st.form(f"delete_comp_{comp['id']}"):
-                st.write("Delete this competitor and all related scores?")
+                st.write("Delete this competitor?")
                 delete_pressed = st.form_submit_button("Delete competitor")
                 if delete_pressed:
                     delete_competitor(comp["id"])
