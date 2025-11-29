@@ -48,6 +48,21 @@ def show():
     # Load existing answers
     existing_answers = get_answers_for_judge_competitor(judge_id, comp["id"])
     answers = {}
+    # Determine whether this competitor has already been scored by this judge
+    scored = any(int(v) > 0 for v in (existing_answers.values() if existing_answers else []))
+    editing_key = f"editing_{judge_id}_{comp['id']}"
+    editing = st.session_state.get(editing_key, False)
+
+    # Show status and edit controls
+    if scored and not editing:
+        st.success("You have already submitted scores for this competitor.")
+        if st.button("Edit scores", key=f"edit_{comp['id']}"):
+            st.session_state[editing_key] = True
+            st.rerun()
+    if editing:
+        if st.button("Cancel edit", key=f"cancel_edit_{comp['id']}"):
+            st.session_state[editing_key] = False
+            st.rerun()
 
     st.write("#### Questions")
     for q in questions:
@@ -60,11 +75,12 @@ def show():
             format_func=lambda v: "Not set" if v == 0 else str(v),
             index=stored_choice,
             horizontal=True,
-            key=f"q_radio_{judge_id}_{comp['id']}_{q['id']}"
+            key=f"q_radio_{judge_id}_{comp['id']}_{q['id']}",
+            disabled=(scored and not editing),
         )
         answers[q["id"]] = choice
-
-    if st.button("Save scores", key=f"save_scores_{comp['id']}"):
+    # Only show Save when not in view-only mode (either not scored, or currently editing)
+    if not (scored and not editing) and st.button("Save scores", key=f"save_scores_{comp['id']}"):
         # Require every question to be scored (non-zero) before saving
         missing = [q for q in questions if answers.get(q["id"], 0) == 0]
         if missing:
@@ -72,5 +88,7 @@ def show():
         else:
             cleaned = {qid: val * 10 for qid, val in answers.items()}
             save_answers_for_judge(judge_id, comp["id"], cleaned)
+            # clear editing state and show toast on rerun
+            st.session_state[editing_key] = False
             st.session_state["score_saved"] = True
             st.rerun()
