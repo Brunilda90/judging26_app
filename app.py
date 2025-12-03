@@ -1,5 +1,5 @@
 import streamlit as st
-from db import init_db, authenticate_user
+from db import init_db, authenticate_user, get_background_color
 import views.judges_page as judges_page
 import views.competitors_page as competitors_page
 import views.scoring_page as scoring_page
@@ -12,6 +12,7 @@ def main():
 
     # Create DB tables if it doesn't exist
     init_db()
+    apply_background_theme()
 
     user = st.session_state.get("user")
     if not user:
@@ -48,6 +49,21 @@ def main():
         scoring_page.show()
     elif page == "Leaderboard":
         leaderboard_page.show()
+
+def apply_background_theme():
+    color = get_background_color()
+    if not color:
+        return
+    st.markdown(
+        f"""
+        <style>
+        .stApp {{
+            background-color: {color};
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 def render_login():
     # Simple login form that sets session on success

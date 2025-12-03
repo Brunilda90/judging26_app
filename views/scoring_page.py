@@ -6,6 +6,7 @@ from db import (
     get_answers_for_judge_competitor,
     save_answers_for_judge,
     get_banner_image,
+    get_intro_message,
 )
 
 def show():
@@ -23,6 +24,9 @@ def show():
         st.image(banner["data"], width="stretch")
 
     st.header("Enter Scores")
+    intro = get_intro_message()
+    if intro:
+        st.info(intro)
 
     # Show success toast if flagged from previous save
     if st.session_state.pop("score_saved", False):

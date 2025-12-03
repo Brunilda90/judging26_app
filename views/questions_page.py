@@ -1,5 +1,13 @@
 import streamlit as st
-from db import get_questions, insert_question, update_question, delete_question
+from db import (
+    get_questions,
+    insert_question,
+    update_question,
+    delete_question,
+    get_intro_message,
+    set_intro_message,
+    clear_intro_message,
+)
 
 
 def show():
@@ -11,6 +19,7 @@ def show():
 
     st.header("Manage Questions")
 
+    render_intro_message_editor()
     render_add_form()
     render_question_list()
 
@@ -62,4 +71,22 @@ def render_delete_form(question):
         if delete_pressed:
             delete_question(question["id"])
             st.success("Question deleted.")
+            st.rerun()
+
+def render_intro_message_editor():
+    st.subheader("Judge intro message")
+    st.caption("Optional text shown above the competitor selector on the Enter Scores page.")
+    current = get_intro_message() or ""
+    with st.form("intro_message_form"):
+        text = st.text_area("Intro message", value=current, height=120)
+        col_save, col_clear = st.columns([1, 1])
+        save = col_save.form_submit_button("Save intro message")
+        clear = col_clear.form_submit_button("Clear intro message")
+        if save:
+            set_intro_message(text.strip())
+            st.success("Intro message saved.")
+            st.rerun()
+        if clear:
+            clear_intro_message()
+            st.success("Intro message cleared.")
             st.rerun()
