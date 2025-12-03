@@ -312,6 +312,50 @@ def delete_banner_image():
     db = get_db()
     db.assets.delete_many({"key": "banner"})
 
+def set_background_color(color_hex: str):
+    """Persist a background color setting (hex string)."""
+    db = get_db()
+    doc = {
+        "key": "background_color",
+        "color": color_hex,
+        "updated_at": datetime.utcnow(),
+    }
+    db.assets.update_one({"key": "background_color"}, {"$set": doc}, upsert=True)
+
+def get_background_color() -> Optional[str]:
+    """Return stored background color hex string or None."""
+    db = get_db()
+    row = db.assets.find_one({"key": "background_color"})
+    if not row:
+        return None
+    return row.get("color")
+
+def clear_background_color():
+    """Remove background color setting."""
+    db = get_db()
+    db.assets.delete_many({"key": "background_color"})
+
+def set_intro_message(text: str):
+    """Persist intro message shown to judges on the scoring page."""
+    db = get_db()
+    doc = {
+        "key": "intro_message",
+        "text": text,
+        "updated_at": datetime.utcnow(),
+    }
+    db.assets.update_one({"key": "intro_message"}, {"$set": doc}, upsert=True)
+
+def get_intro_message() -> Optional[str]:
+    db = get_db()
+    row = db.assets.find_one({"key": "intro_message"})
+    if not row:
+        return None
+    return row.get("text")
+
+def clear_intro_message():
+    db = get_db()
+    db.assets.delete_many({"key": "intro_message"})
+
 
 # --- Questions/answers ---
 

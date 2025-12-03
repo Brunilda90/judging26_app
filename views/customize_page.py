@@ -1,5 +1,12 @@
 import streamlit as st
-from db import save_banner_image, get_banner_image, delete_banner_image
+from db import (
+    save_banner_image,
+    get_banner_image,
+    delete_banner_image,
+    set_background_color,
+    get_background_color,
+    clear_background_color,
+)
 
 
 def show():
@@ -43,3 +50,19 @@ def show():
                 save_banner_image(data, uploaded.name, uploaded.type)
                 st.success("Banner uploaded.")
                 st.rerun()
+
+    st.write("---")
+    st.subheader("Background colour")
+    current_color = get_background_color() or "#FFFFFF"
+    col_picker, col_actions = st.columns([1, 1])
+    with col_picker:
+        picked = st.color_picker("Pick a background colour", value=current_color, key="bg_color_picker")
+    with col_actions:
+        if st.button("Save background colour"):
+            set_background_color(picked)
+            st.success("Background colour updated.")
+            st.rerun()
+        if st.button("Reset to default colour"):
+            clear_background_color()
+            st.success("Background colour reset.")
+            st.rerun()
