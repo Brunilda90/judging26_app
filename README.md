@@ -1,7 +1,7 @@
 ##  Streamlit app for scoring competitions. 
 
 
-[Link to live site](https://judgingapp.streamlit.app/)
+[Link to live site](https://judgingapp26.streamlit.app/)
 
 Main Features
 
