@@ -8,6 +8,8 @@ import views.leaderboard_page as leaderboard_page
 import views.questions_page as questions_page
 import views.registrations_page as registrations_page
 import views.registration_page as registration_page
+import views.booking_page as booking_page
+import views.admin_bookings_page as admin_bookings_page
 
 _LOGO_LEFT = os.path.join("assets", "georgian_logo.png")
 _LOGO_RIGHT = os.path.join("assets", "autohack_logo.png")
@@ -24,6 +26,9 @@ def main():
     page_param = st.query_params.get("page", "")
     if page_param == "register":
         registration_page.show()
+        return
+    if page_param == "book":
+        booking_page.show()
         return
 
     # --- Authenticated routes ---
@@ -43,6 +48,7 @@ def main():
     if user["role"] == "admin":
         page = st.sidebar.radio("Navigation", [
             "Team Registrations",
+            "Prelim Bookings",
             "Manage Judges",
             "Manage Competitors",
             "Manage Questions",
@@ -55,6 +61,8 @@ def main():
     # Routes
     if page == "Team Registrations":
         registrations_page.show()
+    elif page == "Prelim Bookings":
+        admin_bookings_page.show()
     elif page == "Manage Judges":
         judges_page.show()
     elif page == "Manage Competitors":

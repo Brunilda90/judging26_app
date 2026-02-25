@@ -95,6 +95,7 @@ def init_db():
     db.team_registrations.create_index("team_name")
     db.team_registrations.create_index("contact_email")
     db.team_registrations.create_index("status")
+    _init_booking_indexes(db)
     create_default_admin_if_missing(db)
 
 
@@ -520,6 +521,129 @@ def contact_email_registered(email: str) -> bool:
         "contact_email": email.strip().lower(),
         "status": {"$in": ["pending", "approved"]},
     }))
+
+
+# ── Prelim Booking constants ────────────────────────────────────────────────────
+
+PRELIM_ROOMS: list = ["N200", "N217", "N312"]
+
+PRELIM_SLOTS: list = [
+    "2:00 PM – 2:10 PM",
+    "2:10 PM – 2:20 PM",
+    "2:20 PM – 2:30 PM",
+    "2:30 PM – 2:40 PM",
+    "2:40 PM – 2:50 PM",
+    "2:50 PM – 3:00 PM",
+    "3:00 PM – 3:10 PM",
+    "3:10 PM – 3:20 PM",
+    "3:20 PM – 3:30 PM",
+]
+
+
+# ── Prelim Booking DB helpers ───────────────────────────────────────────────────
+
+def _init_booking_indexes(db):
+    """Create unique indexes for the prelim_bookings collection."""
+    # Each (slot, room) pair can only be assigned once
+    db.prelim_bookings.create_index(
+        [("slot_label", ASCENDING), ("room", ASCENDING)], unique=True
+    )
+    # Each approved team can only have one booking at a time
+    db.prelim_bookings.create_index("team_name", unique=True)
+
+
+def get_approved_team_names() -> list:
+    """Return sorted list of team names from approved registrations."""
+    db = get_db()
+    rows = db.team_registrations.find({"status": "approved"}).sort("team_name", ASCENDING)
+    return [r["team_name"] for r in rows]
+
+
+def get_all_bookings() -> list:
+    """Return all prelim bookings sorted by slot then room."""
+    db = get_db()
+    rows = db.prelim_bookings.find().sort(
+        [("slot_label", ASCENDING), ("room", ASCENDING)]
+    )
+    return [_doc_with_id(r) for r in rows]
+
+
+def get_booking_by_team_name(team_name: str) -> Optional[Dict[str, Any]]:
+    """Return the booking for a given team name, or None."""
+    db = get_db()
+    row = db.prelim_bookings.find_one({"team_name": team_name})
+    return _doc_with_id(row) if row else None
+
+
+def get_booked_slot_map() -> Dict[str, str]:
+    """Return dict keyed by 'slot_label||room' → team_name for all booked slots."""
+    db = get_db()
+    result: Dict[str, str] = {}
+    for row in db.prelim_bookings.find():
+        key = f"{row['slot_label']}||{row['room']}"
+        result[key] = row["team_name"]
+    return result
+
+
+def create_booking(team_name: str, slot_label: str, room: str) -> str:
+    """Create a new booking. Raises ValueError on conflict."""
+    db = get_db()
+    # Check if team already has a booking
+    existing = db.prelim_bookings.find_one({"team_name": team_name})
+    if existing:
+        raise ValueError(f"Team '{team_name}' already has a booking. Use switch_booking to change it.")
+    doc = {
+        "team_name": team_name,
+        "slot_label": slot_label,
+        "room": room,
+        "booked_at": datetime.utcnow(),
+    }
+    try:
+        result = db.prelim_bookings.insert_one(doc)
+        return str(result.inserted_id)
+    except DuplicateKeyError:
+        raise ValueError(f"Slot '{slot_label}' in room {room} is already taken.")
+
+
+def switch_booking(team_name: str, new_slot_label: str, new_room: str) -> str:
+    """Delete existing booking for team and create a new one atomically."""
+    db = get_db()
+    # Remove old booking first
+    db.prelim_bookings.delete_many({"team_name": team_name})
+    doc = {
+        "team_name": team_name,
+        "slot_label": new_slot_label,
+        "room": new_room,
+        "booked_at": datetime.utcnow(),
+    }
+    try:
+        result = db.prelim_bookings.insert_one(doc)
+        return str(result.inserted_id)
+    except DuplicateKeyError:
+        raise ValueError(f"Slot '{new_slot_label}' in room {new_room} is already taken.")
+
+
+def admin_update_booking(booking_id: Any, slot_label: str, room: str):
+    """Admin: update any booking's slot/room. Raises ValueError on slot conflict."""
+    db = get_db()
+    # Check the target slot isn't taken by a different booking
+    conflict = db.prelim_bookings.find_one({
+        "slot_label": slot_label,
+        "room": room,
+        "_id": {"$ne": _oid(booking_id)},
+    })
+    if conflict:
+        raise ValueError(f"Slot '{slot_label}' in room {room} is already booked by '{conflict['team_name']}'.")
+    db.prelim_bookings.update_one(
+        {"_id": _oid(booking_id)},
+        {"$set": {"slot_label": slot_label, "room": room}},
+    )
+
+
+def admin_delete_booking(booking_id: Any):
+    """Admin: remove a booking entirely."""
+    db = get_db()
+    db.prelim_bookings.delete_one({"_id": _oid(booking_id)})
 
 
 # --- Auth helpers ---
