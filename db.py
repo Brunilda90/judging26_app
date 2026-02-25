@@ -96,6 +96,7 @@ def init_db():
     db.team_registrations.create_index("contact_email")
     db.team_registrations.create_index("status")
     _init_booking_indexes(db)
+    _init_scheduling_indexes(db)
     create_default_admin_if_missing(db)
 
 
@@ -653,6 +654,232 @@ def admin_delete_booking(booking_id: Any):
     """Admin: remove a booking entirely."""
     db = get_db()
     db.prelim_bookings.delete_one({"_id": _oid(booking_id)})
+
+
+# ── Mentor & Robot Scheduling constants ─────────────────────────────────────────
+
+MENTOR_NAMES: list = [
+    "Mentor 1",
+    "Mentor 2",
+    "Mentor 3",
+    "Mentor 4",
+    "Mentor 5",
+    "Mentor 6",
+    "Mentor 7",
+]
+
+# One robot per room — the room name IS the robot identifier
+SCHED_ROBOT_ROOMS: list = ["N200", "N217", "N300A"]
+
+SCHED_FRIDAY_SLOTS: list = [
+    "Fri Mar 6 \u00b7 6:20 \u2013 6:40 PM",
+    "Fri Mar 6 \u00b7 6:40 \u2013 7:00 PM",
+    "Fri Mar 6 \u00b7 7:00 \u2013 7:20 PM",
+    "Fri Mar 6 \u00b7 7:20 \u2013 7:40 PM",
+    "Fri Mar 6 \u00b7 7:40 \u2013 8:00 PM",
+]
+
+SCHED_SATURDAY_SLOTS: list = [
+    "Sat Mar 7 \u00b7 10:00 \u2013 10:20 AM",
+    "Sat Mar 7 \u00b7 10:20 \u2013 10:40 AM",
+    "Sat Mar 7 \u00b7 10:40 \u2013 11:00 AM",
+    "Sat Mar 7 \u00b7 11:00 \u2013 11:20 AM",
+    "Sat Mar 7 \u00b7 11:20 \u2013 11:40 AM",
+    "Sat Mar 7 \u00b7 11:40 AM \u2013 12:00 PM",
+    "Sat Mar 7 \u00b7 12:00 \u2013 12:20 PM",
+    "Sat Mar 7 \u00b7 12:20 \u2013 12:40 PM",
+    "Sat Mar 7 \u00b7 12:40 \u2013  1:00 PM",
+    "Sat Mar 7 \u00b7  1:00 \u2013  1:20 PM",
+]
+
+SCHED_ALL_SLOTS: list = SCHED_FRIDAY_SLOTS + SCHED_SATURDAY_SLOTS
+
+MAX_MENTOR_BOOKINGS: int = 2
+MAX_ROBOT_BOOKINGS: int = 2
+
+
+# ── Scheduling DB helpers ────────────────────────────────────────────────────────
+
+def _init_scheduling_indexes(db):
+    """Create unique indexes for mentor_bookings and robot_bookings collections."""
+    # One team per mentor per slot
+    db.mentor_bookings.create_index(
+        [("mentor_name", ASCENDING), ("slot_label", ASCENDING)], unique=True
+    )
+    # A team can only have one mentor booking per slot (no double-booking same time)
+    db.mentor_bookings.create_index(
+        [("team_name", ASCENDING), ("slot_label", ASCENDING)], unique=True
+    )
+    # One team per robot room per slot
+    db.robot_bookings.create_index(
+        [("room", ASCENDING), ("slot_label", ASCENDING)], unique=True
+    )
+    # A team can only have one robot booking per slot
+    db.robot_bookings.create_index(
+        [("team_name", ASCENDING), ("slot_label", ASCENDING)], unique=True
+    )
+
+
+def get_mentor_bookings_for_team(team_name: str) -> list:
+    """Return all mentor bookings for a team."""
+    db = get_db()
+    rows = db.mentor_bookings.find({"team_name": team_name}).sort(
+        "slot_label", ASCENDING
+    )
+    return [_doc_with_id(r) for r in rows]
+
+
+def get_robot_bookings_for_team(team_name: str) -> list:
+    """Return all robot bookings for a team."""
+    db = get_db()
+    rows = db.robot_bookings.find({"team_name": team_name}).sort(
+        "slot_label", ASCENDING
+    )
+    return [_doc_with_id(r) for r in rows]
+
+
+def get_all_mentor_bookings() -> list:
+    """Return all mentor bookings sorted by slot then mentor."""
+    db = get_db()
+    rows = db.mentor_bookings.find().sort(
+        [("slot_label", ASCENDING), ("mentor_name", ASCENDING)]
+    )
+    return [_doc_with_id(r) for r in rows]
+
+
+def get_all_robot_bookings() -> list:
+    """Return all robot bookings sorted by slot then room."""
+    db = get_db()
+    rows = db.robot_bookings.find().sort(
+        [("slot_label", ASCENDING), ("room", ASCENDING)]
+    )
+    return [_doc_with_id(r) for r in rows]
+
+
+def get_mentor_booked_map() -> Dict[str, str]:
+    """Return dict keyed by 'slot_label||mentor_name' → team_name."""
+    db = get_db()
+    result: Dict[str, str] = {}
+    for row in db.mentor_bookings.find():
+        key = f"{row['slot_label']}||{row['mentor_name']}"
+        result[key] = row["team_name"]
+    return result
+
+
+def get_robot_booked_map() -> Dict[str, str]:
+    """Return dict keyed by 'slot_label||room' → team_name."""
+    db = get_db()
+    result: Dict[str, str] = {}
+    for row in db.robot_bookings.find():
+        key = f"{row['slot_label']}||{row['room']}"
+        result[key] = row["team_name"]
+    return result
+
+
+def create_mentor_booking(team_name: str, mentor_name: str, slot_label: str) -> str:
+    """Create a mentor booking. Raises ValueError on limit or slot conflict."""
+    db = get_db()
+    current = db.mentor_bookings.count_documents({"team_name": team_name})
+    if current >= MAX_MENTOR_BOOKINGS:
+        raise ValueError(
+            f"Your team has already booked {MAX_MENTOR_BOOKINGS} mentor sessions (the maximum)."
+        )
+    doc = {
+        "team_name": team_name,
+        "mentor_name": mentor_name,
+        "slot_label": slot_label,
+        "booked_at": datetime.utcnow(),
+    }
+    try:
+        result = db.mentor_bookings.insert_one(doc)
+        return str(result.inserted_id)
+    except DuplicateKeyError:
+        raise ValueError(
+            f"That slot is no longer available for {mentor_name}. Please choose another."
+        )
+
+
+def create_robot_booking(team_name: str, room: str, slot_label: str) -> str:
+    """Create a robot booking. Raises ValueError on limit or slot conflict."""
+    db = get_db()
+    current = db.robot_bookings.count_documents({"team_name": team_name})
+    if current >= MAX_ROBOT_BOOKINGS:
+        raise ValueError(
+            f"Your team has already booked {MAX_ROBOT_BOOKINGS} robot sessions (the maximum)."
+        )
+    doc = {
+        "team_name": team_name,
+        "room": room,
+        "slot_label": slot_label,
+        "booked_at": datetime.utcnow(),
+    }
+    try:
+        result = db.robot_bookings.insert_one(doc)
+        return str(result.inserted_id)
+    except DuplicateKeyError:
+        raise ValueError(
+            f"That slot is no longer available for Robot in {room}. Please choose another."
+        )
+
+
+def cancel_mentor_booking(booking_id: Any):
+    """Cancel (delete) a mentor booking by ID."""
+    db = get_db()
+    db.mentor_bookings.delete_one({"_id": _oid(booking_id)})
+
+
+def cancel_robot_booking(booking_id: Any):
+    """Cancel (delete) a robot booking by ID."""
+    db = get_db()
+    db.robot_bookings.delete_one({"_id": _oid(booking_id)})
+
+
+def admin_update_mentor_booking(booking_id: Any, mentor_name: str, slot_label: str):
+    """Admin: update a mentor booking's mentor and slot. Raises ValueError on conflict."""
+    db = get_db()
+    conflict = db.mentor_bookings.find_one({
+        "mentor_name": mentor_name,
+        "slot_label": slot_label,
+        "_id": {"$ne": _oid(booking_id)},
+    })
+    if conflict:
+        raise ValueError(
+            f"Slot '{slot_label}' is already booked with {mentor_name} by '{conflict['team_name']}'."
+        )
+    db.mentor_bookings.update_one(
+        {"_id": _oid(booking_id)},
+        {"$set": {"mentor_name": mentor_name, "slot_label": slot_label}},
+    )
+
+
+def admin_update_robot_booking(booking_id: Any, room: str, slot_label: str):
+    """Admin: update a robot booking's room and slot. Raises ValueError on conflict."""
+    db = get_db()
+    conflict = db.robot_bookings.find_one({
+        "room": room,
+        "slot_label": slot_label,
+        "_id": {"$ne": _oid(booking_id)},
+    })
+    if conflict:
+        raise ValueError(
+            f"Slot '{slot_label}' for Robot in {room} is already booked by '{conflict['team_name']}'."
+        )
+    db.robot_bookings.update_one(
+        {"_id": _oid(booking_id)},
+        {"$set": {"room": room, "slot_label": slot_label}},
+    )
+
+
+def admin_delete_mentor_booking(booking_id: Any):
+    """Admin: remove a mentor booking entirely."""
+    db = get_db()
+    db.mentor_bookings.delete_one({"_id": _oid(booking_id)})
+
+
+def admin_delete_robot_booking(booking_id: Any):
+    """Admin: remove a robot booking entirely."""
+    db = get_db()
+    db.robot_bookings.delete_one({"_id": _oid(booking_id)})
 
 
 # --- Auth helpers ---
