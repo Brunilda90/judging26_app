@@ -137,6 +137,17 @@ _CSS = f"""
     border-color: rgba(240,180,0,0.75);
 }}
 
+/* Mentor schedule view — cyan/teal accent */
+.card-mentor-view {{
+    background: linear-gradient(135deg, rgba(0,100,130,0.50) 0%, rgba(10,12,22,0.85) 100%);
+    border: 1px solid rgba(0,180,220,0.40);
+    box-shadow: 0 4px 30px rgba(0,180,220,0.12);
+}}
+.card-mentor-view:hover {{
+    box-shadow: 0 8px 48px rgba(0,180,220,0.30);
+    border-color: rgba(0,200,240,0.70);
+}}
+
 .card-icon {{
     font-size: 2.6rem;
     display: block;
@@ -291,12 +302,22 @@ def show():
         <span class="card-arrow">→</span>
       </a>
 
-      <a href="/?page=schedule" class="portal-card card-schedule" style="grid-column: span 2;">
+      <a href="/?page=schedule" class="portal-card card-schedule">
         <span class="card-icon">🗓️</span>
         <span class="card-title">Mentor &amp; Robot Schedule</span>
         <span class="card-desc">
-          Book 20-min mentor sessions and robot demo slots for<br>
+          Book 20-min mentor sessions and robot demo slots for
           Friday Mar 6 (6:20–8:00 PM) &amp; Saturday Mar 7 (10:00 AM–1:20 PM).
+        </span>
+        <span class="card-arrow">→</span>
+      </a>
+
+      <a href="/?page=mentor_schedule" class="portal-card card-mentor-view">
+        <span class="card-icon">📋</span>
+        <span class="card-title">Mentor Schedule View</span>
+        <span class="card-desc">
+          Mentors: see which teams have booked
+          sessions in your room and when.
         </span>
         <span class="card-arrow">→</span>
       </a>

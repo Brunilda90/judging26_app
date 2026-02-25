@@ -13,6 +13,7 @@ import views.admin_bookings_page as admin_bookings_page
 import views.home_page as home_page
 import views.scheduling_page as scheduling_page
 import views.admin_scheduling_page as admin_scheduling_page
+import views.mentor_schedule_page as mentor_schedule_page
 
 _LOGO_LEFT = os.path.join("assets", "georgian_logo.png")
 _LOGO_RIGHT = os.path.join("assets", "autohack_logo.png")
@@ -40,6 +41,9 @@ def main():
         return
     if page_param == "schedule":
         scheduling_page.show()
+        return
+    if page_param == "mentor_schedule":
+        mentor_schedule_page.show()
         return
 
     # --- Authenticated routes ---
