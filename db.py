@@ -524,6 +524,19 @@ def contact_email_registered(email: str) -> bool:
     }))
 
 
+def get_team_by_member_email(email: str):
+    """Return the registration doc where any member's email matches (pending/approved), or None.
+    Comparison is case-insensitive."""
+    import re
+    db = get_db()
+    pattern = re.compile(r"^" + re.escape(email.strip()) + r"$", re.IGNORECASE)
+    row = db.team_registrations.find_one({
+        "members.email": pattern,
+        "status": {"$in": ["pending", "approved"]},
+    })
+    return _doc_with_id(row) if row else None
+
+
 # ── Prelim Booking constants ────────────────────────────────────────────────────
 
 PRELIM_ROOMS: list = ["N200", "N217", "N300A"]
@@ -668,6 +681,18 @@ MENTOR_NAMES: list = [
     "Mentor 7",
 ]
 
+# Maps each mentor to the room they are stationed in.
+# UPDATE with real mentor names and room assignments before the event.
+MENTOR_ROOM_MAP: dict = {
+    "Mentor 1": "N200",
+    "Mentor 2": "N200",
+    "Mentor 3": "N217",
+    "Mentor 4": "N217",
+    "Mentor 5": "N300A",
+    "Mentor 6": "N300A",
+    "Mentor 7": "N300A",
+}
+
 # One robot per room — the room name IS the robot identifier
 SCHED_ROBOT_ROOMS: list = ["N200", "N217", "N300A"]
 
@@ -797,6 +822,48 @@ def create_mentor_booking(team_name: str, mentor_name: str, slot_label: str) -> 
         raise ValueError(
             f"That slot is no longer available for {mentor_name}. Please choose another."
         )
+
+
+def create_mentor_booking_room(team_name: str, room: str, slot_label: str) -> str:
+    """Book a mentor session in a specific room at a specific slot.
+    Auto-assigns to any available mentor stationed in that room.
+    Raises ValueError if at limit, already booked at this slot, or no mentors free in that room."""
+    db = get_db()
+    current = db.mentor_bookings.count_documents({"team_name": team_name})
+    if current >= MAX_MENTOR_BOOKINGS:
+        raise ValueError(
+            f"Your team has already booked {MAX_MENTOR_BOOKINGS} mentor sessions (the maximum)."
+        )
+    slot_conflict = db.mentor_bookings.find_one(
+        {"team_name": team_name, "slot_label": slot_label}
+    )
+    if slot_conflict:
+        raise ValueError("Your team already has a mentor session booked at this time slot.")
+    mentors_in_room = [m for m, r in MENTOR_ROOM_MAP.items() if r == room]
+    if not mentors_in_room:
+        raise ValueError(f"No mentors are assigned to Room {room}.")
+    booked_here = {
+        r["mentor_name"]
+        for r in db.mentor_bookings.find(
+            {"slot_label": slot_label, "mentor_name": {"$in": mentors_in_room}}
+        )
+    }
+    available_mentor = next((m for m in mentors_in_room if m not in booked_here), None)
+    if not available_mentor:
+        raise ValueError(
+            f"Room {room} is fully booked at that time. Please choose a different slot or room."
+        )
+    doc = {
+        "team_name": team_name,
+        "mentor_name": available_mentor,
+        "slot_label": slot_label,
+        "booked_at": datetime.utcnow(),
+    }
+    try:
+        result = db.mentor_bookings.insert_one(doc)
+        return str(result.inserted_id)
+    except DuplicateKeyError:
+        raise ValueError("That slot was just taken. Please refresh and try a different time.")
 
 
 def create_robot_booking(team_name: str, room: str, slot_label: str) -> str:
