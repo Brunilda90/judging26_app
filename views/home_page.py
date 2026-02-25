@@ -126,6 +126,17 @@ _CSS = f"""
     border-color: rgba(180,100,240,0.70);
 }}
 
+/* Scheduling — amber/gold accent */
+.card-schedule {{
+    background: linear-gradient(135deg, rgba(120,80,0,0.50) 0%, rgba(10,12,22,0.85) 100%);
+    border: 1px solid rgba(220,160,0,0.45);
+    box-shadow: 0 4px 30px rgba(220,160,0,0.15);
+}}
+.card-schedule:hover {{
+    box-shadow: 0 8px 48px rgba(220,160,0,0.35);
+    border-color: rgba(240,180,0,0.75);
+}}
+
 .card-icon {{
     font-size: 2.6rem;
     display: block;
@@ -276,6 +287,16 @@ def show():
         <span class="card-desc">
           Competition judges: log in to enter<br>
           scores for competing teams.
+        </span>
+        <span class="card-arrow">→</span>
+      </a>
+
+      <a href="/?page=schedule" class="portal-card card-schedule" style="grid-column: span 2;">
+        <span class="card-icon">🗓️</span>
+        <span class="card-title">Mentor &amp; Robot Schedule</span>
+        <span class="card-desc">
+          Book 20-min mentor sessions and robot demo slots for<br>
+          Friday Mar 6 (6:20–8:00 PM) &amp; Saturday Mar 7 (10:00 AM–1:20 PM).
         </span>
         <span class="card-arrow">→</span>
       </a>
