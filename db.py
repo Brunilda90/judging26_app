@@ -92,6 +92,9 @@ def init_db():
         [("judge_id", ASCENDING), ("competitor_id", ASCENDING), ("question_id", ASCENDING)],
         unique=True,
     )
+    db.team_registrations.create_index("team_name")
+    db.team_registrations.create_index("contact_email")
+    db.team_registrations.create_index("status")
     create_default_admin_if_missing(db)
 
 
@@ -424,6 +427,99 @@ def get_answers_for_judge_competitor(judge_id, competitor_id):
         {"judge_id": _oid(judge_id), "competitor_id": _oid(competitor_id)}
     )
     return {str(row["question_id"]): row["value"] for row in rows}
+
+
+# --- Team Registration ---
+
+def register_team(team_name: str, project_name: str, description: str, members: list, contact_email: str) -> str:
+    """Submit a new team registration (public, no auth required)."""
+    db = get_db()
+    doc = {
+        "team_name": team_name.strip(),
+        "project_name": project_name.strip(),
+        "description": description.strip(),
+        "members": members,  # list of {name, email}
+        "contact_email": contact_email.strip().lower(),
+        "status": "pending",
+        "created_at": datetime.utcnow(),
+        "admin_notes": "",
+        "competitor_id": None,
+    }
+    result = db.team_registrations.insert_one(doc)
+    return str(result.inserted_id)
+
+
+def get_team_registrations(status: Optional[str] = None):
+    """Return all team registrations, optionally filtered by status."""
+    db = get_db()
+    query: Dict[str, Any] = {}
+    if status:
+        query["status"] = status
+    rows = db.team_registrations.find(query).sort("created_at", ASCENDING)
+    return [_doc_with_id(r) for r in rows]
+
+
+def approve_registration_as_competitor(reg_id: Any) -> str:
+    """Approve a registration and create a competitor entry. Returns competitor_id."""
+    db = get_db()
+    reg = db.team_registrations.find_one({"_id": _oid(reg_id)})
+    if not reg:
+        raise ValueError("Registration not found")
+    notes_text = f"Project: {reg['project_name']}"
+    if reg.get("description"):
+        notes_text += f"\n{reg['description']}"
+    result = db.competitors.insert_one({"name": reg["team_name"], "notes": notes_text})
+    competitor_id = result.inserted_id
+    db.team_registrations.update_one(
+        {"_id": _oid(reg_id)},
+        {"$set": {
+            "status": "approved",
+            "competitor_id": competitor_id,
+            "reviewed_at": datetime.utcnow(),
+        }},
+    )
+    return str(competitor_id)
+
+
+def reject_registration(reg_id: Any, admin_notes: str = ""):
+    """Mark a registration as rejected with optional admin notes."""
+    db = get_db()
+    db.team_registrations.update_one(
+        {"_id": _oid(reg_id)},
+        {"$set": {"status": "rejected", "admin_notes": admin_notes, "reviewed_at": datetime.utcnow()}},
+    )
+
+
+def update_registration(reg_id: Any, team_name: str = None, contact_email: str = None,
+                        admin_notes: str = None, status: str = None, members: list = None):
+    """Update editable fields on a team registration."""
+    db = get_db()
+    patch: Dict[str, Any] = {}
+    if team_name     is not None: patch["team_name"]    = team_name.strip()
+    if contact_email is not None: patch["contact_email"] = contact_email.strip().lower()
+    if admin_notes   is not None: patch["admin_notes"]  = admin_notes.strip()
+    if status        is not None: patch["status"]       = status
+    if members       is not None: patch["members"]      = members
+    if patch:
+        db.team_registrations.update_one({"_id": _oid(reg_id)}, {"$set": patch})
+
+
+def team_name_exists(team_name: str) -> bool:
+    """Check if a team name is already in a pending or approved registration."""
+    db = get_db()
+    return bool(db.team_registrations.find_one({
+        "team_name": team_name.strip(),
+        "status": {"$in": ["pending", "approved"]},
+    }))
+
+
+def contact_email_registered(email: str) -> bool:
+    """Check if a contact email is already in a pending or approved registration."""
+    db = get_db()
+    return bool(db.team_registrations.find_one({
+        "contact_email": email.strip().lower(),
+        "status": {"$in": ["pending", "approved"]},
+    }))
 
 
 # --- Auth helpers ---

@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 from db import init_db, authenticate_user, get_background_color, is_db_configured
 import views.judges_page as judges_page
@@ -5,22 +6,35 @@ import views.competitors_page as competitors_page
 import views.scoring_page as scoring_page
 import views.leaderboard_page as leaderboard_page
 import views.questions_page as questions_page
+import views.registrations_page as registrations_page
+import views.registration_page as registration_page
+
+_LOGO_LEFT = os.path.join("assets", "georgian_logo.png")
+_LOGO_RIGHT = os.path.join("assets", "autohack_logo.png")
+
 
 def main():
-    # Setup Streamlit page
-    st.set_page_config(page_title="Judging Tool", layout="wide")
+    st.set_page_config(page_title="AutoHack 2026", layout="wide")
 
-    # Create DB tables if it doesn't exist
+    # Create DB indexes and seed default admin
     init_db()
     apply_background_theme()
 
+    # --- Public routes (no login required) ---
+    page_param = st.query_params.get("page", "")
+    if page_param == "register":
+        registration_page.show()
+        return
+
+    # --- Authenticated routes ---
     user = st.session_state.get("user")
     if not user:
         render_login()
         return
 
-    # Sidebar navigation + logout
-    st.sidebar.title("Judging Tool")
+    # Sidebar: logos + title
+    _render_sidebar_header()
+
     st.sidebar.write(f"Logged in as **{user['username']}** ({user['role']})")
     if st.sidebar.button("Log out"):
         st.session_state.pop("user", None)
@@ -28,15 +42,20 @@ def main():
 
     if user["role"] == "admin":
         page = st.sidebar.radio("Navigation", [
-            "Manage Judges", "Manage Competitors", "Manage Questions", "Customize", "Leaderboard"
+            "Team Registrations",
+            "Manage Judges",
+            "Manage Competitors",
+            "Manage Questions",
+            "Customize",
+            "Leaderboard",
         ])
     else:
-        page = st.sidebar.radio("Navigation", [
-            "Enter Scores"
-        ])
+        page = st.sidebar.radio("Navigation", ["Enter Scores"])
 
-    # Routes to correct page
-    if page == "Manage Judges":
+    # Routes
+    if page == "Team Registrations":
+        registrations_page.show()
+    elif page == "Manage Judges":
         judges_page.show()
     elif page == "Manage Competitors":
         competitors_page.show()
@@ -49,6 +68,23 @@ def main():
         scoring_page.show()
     elif page == "Leaderboard":
         leaderboard_page.show()
+
+
+def _render_sidebar_header():
+    left_exists = os.path.exists(_LOGO_LEFT)
+    right_exists = os.path.exists(_LOGO_RIGHT)
+
+    if left_exists and right_exists:
+        c1, c2 = st.sidebar.columns(2)
+        c1.image(_LOGO_LEFT, use_container_width=True)
+        c2.image(_LOGO_RIGHT, use_container_width=True)
+    elif left_exists:
+        st.sidebar.image(_LOGO_LEFT, use_container_width=True)
+    elif right_exists:
+        st.sidebar.image(_LOGO_RIGHT, use_container_width=True)
+
+    st.sidebar.title("AutoHack 2026")
+
 
 def apply_background_theme():
     color = get_background_color()
@@ -65,9 +101,25 @@ def apply_background_theme():
         unsafe_allow_html=True,
     )
 
+
 def render_login():
-    # Simple login form that sets session on success
-    st.title("Judging Tool")
+    left_exists = os.path.exists(_LOGO_LEFT)
+    right_exists = os.path.exists(_LOGO_RIGHT)
+
+    if left_exists or right_exists:
+        if left_exists and right_exists:
+            c1, c2, c3 = st.columns([1, 2, 1])
+            with c1:
+                st.image(_LOGO_LEFT, width=140)
+            with c3:
+                st.image(_LOGO_RIGHT, width=140)
+        else:
+            logo_path = _LOGO_LEFT if left_exists else _LOGO_RIGHT
+            c1, c2 = st.columns([1, 4])
+            with c1:
+                st.image(logo_path, width=120)
+
+    st.title("AutoHack 2026 — Judging Portal")
     st.subheader("Login")
 
     if not is_db_configured():
@@ -89,6 +141,7 @@ def render_login():
             else:
                 st.error("Invalid username or password.")
     st.stop()
+
 
 if __name__ == "__main__":
     main()
