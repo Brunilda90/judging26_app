@@ -1,4 +1,3 @@
-import pandas as pd
 import streamlit as st
 from db import get_team_registrations, update_registration
 
@@ -18,7 +17,7 @@ def show():
 
     st.header("Team Registrations")
 
-    # Registration link
+    # ── Public link ─────────────────────────────────────────────────────────────
     with st.container(border=True):
         st.markdown("**Public Registration Link**")
         st.code(_registration_link(), language=None)
@@ -31,115 +30,128 @@ def show():
         st.info("No registrations yet.")
         return
 
-    st.caption(f"{len(registrations)} registration(s) total")
+    st.caption(f"{len(registrations)} team(s) registered")
+    st.divider()
 
-    # ── Build flat DataFrame ────────────────────────────────────────────────────
-    # One row per team.  Member 1 … Member 6 hold editable names.
-    # Email / Institution / Program stay visible in the expander below.
-    rows = []
+    # ── Track which team is being viewed / edited ────────────────────────────────
+    if "editing_reg_id" not in st.session_state:
+        st.session_state["editing_reg_id"] = None
+    if "viewing_reg_id" not in st.session_state:
+        st.session_state["viewing_reg_id"] = None
+
+    # ── Table header ─────────────────────────────────────────────────────────────
+    hcols = st.columns([2.2, 0.7, 2.2, 1.5, 1.0, 0.9])
+    hcols[0].markdown("**Team Name**")
+    hcols[1].markdown("**Members**")
+    hcols[2].markdown("**Member 1 Email**")
+    hcols[3].markdown("**Submitted**")
+    hcols[4].markdown("")
+    hcols[5].markdown("")
+    st.divider()
+
+    # ── One row per team ─────────────────────────────────────────────────────────
     for reg in registrations:
-        created  = reg.get("created_at")
+        reg_id  = reg["id"]
+        members = reg.get("members") or []
+        created = reg.get("created_at")
         date_str = (
             created.strftime("%Y-%m-%d %H:%M")
-            if hasattr(created, "strftime") else str(created)
+            if hasattr(created, "strftime") else str(created or "—")
         )
-        members = reg.get("members") or []
-        row = {
-            "_id":       str(reg["id"]),
-            "Team Name": reg.get("team_name", ""),
-            "Submitted": date_str,
-            "Notes":     reg.get("admin_notes", ""),
-        }
-        for i in range(1, _MAX_MEMBERS + 1):
-            row[f"Member {i}"] = members[i - 1].get("name", "") if i <= len(members) else ""
-        rows.append(row)
+        member1_email = members[0].get("email", "—") if members else "—"
+        is_editing = st.session_state["editing_reg_id"] == reg_id
+        is_viewing = st.session_state["viewing_reg_id"] == reg_id
 
-    df = pd.DataFrame(rows)
+        row = st.columns([2.2, 0.7, 2.2, 1.5, 1.0, 0.9])
+        row[0].write(reg.get("team_name", "—"))
+        row[1].write(str(len(members)))
+        row[2].write(member1_email)
+        row[3].write(date_str)
 
-    # ── Column config ───────────────────────────────────────────────────────────
-    col_cfg = {
-        "_id":       None,   # hidden
-        "Team Name": st.column_config.TextColumn("Team Name", width="medium"),
-        "Submitted": st.column_config.TextColumn("Submitted", disabled=True, width="small"),
-        "Notes":     st.column_config.TextColumn("Admin Notes", width="medium"),
-    }
-    for i in range(1, _MAX_MEMBERS + 1):
-        col_cfg[f"Member {i}"] = st.column_config.TextColumn(
-            f"Member {i}", width="medium"
-        )
+        # View button
+        if is_viewing:
+            if row[4].button("Close", key=f"close_{reg_id}"):
+                st.session_state["viewing_reg_id"] = None
+                st.rerun()
+        else:
+            if row[4].button("👁 View", key=f"view_{reg_id}"):
+                st.session_state["viewing_reg_id"] = reg_id
+                st.session_state["editing_reg_id"] = None
+                st.rerun()
 
-    st.subheader("All Registrations")
-    st.caption("Edit any cell directly, then click **Save Changes**.")
+        # Edit button
+        if is_editing:
+            if row[5].button("Cancel", key=f"cancel_{reg_id}"):
+                st.session_state["editing_reg_id"] = None
+                st.rerun()
+        else:
+            if row[5].button("✏️ Edit", key=f"edit_{reg_id}"):
+                st.session_state["editing_reg_id"] = reg_id
+                st.session_state["viewing_reg_id"] = None
+                st.rerun()
 
-    edited = st.data_editor(
-        df,
-        column_config=col_cfg,
-        column_order=[
-            "Team Name",
-            *[f"Member {i}" for i in range(1, _MAX_MEMBERS + 1)],
-            "Submitted",
-            "Notes",
-        ],
-        use_container_width=True,
-        num_rows="fixed",
-        hide_index=True,
-        key="registrations_editor",
-    )
+        # ── Inline view panel ────────────────────────────────────────────────────
+        if is_viewing:
+            with st.container(border=True):
+                st.markdown(f"##### 👁 {reg.get('team_name', '')}")
+                v1, v2 = st.columns(2)
+                v1.markdown(f"**Project:** {reg.get('project_name') or '—'}")
+                v2.markdown(f"**Submitted:** {date_str}")
+                if reg.get("description"):
+                    st.markdown(f"**Description:** {reg['description']}")
+                st.markdown("**Team Members**")
+                mh = st.columns([2, 2.5, 2, 2.5])
+                for col, lbl in zip(mh, ["Full Name", "Email", "Institution", "Program"]):
+                    col.markdown(f"<small><b>{lbl}</b></small>", unsafe_allow_html=True)
+                for m in members:
+                    mc = st.columns([2, 2.5, 2, 2.5])
+                    mc[0].write(m.get("name", "—"))
+                    mc[1].write(m.get("email", "—"))
+                    mc[2].write(m.get("institution", "—"))
+                    mc[3].write(m.get("program", "—"))
 
-    if st.button("Save Changes", type="primary"):
-        # Index original members by registration id so we can preserve
-        # email / institution / program when only names are edited.
-        orig_map = {str(reg["id"]): reg.get("members") or [] for reg in registrations}
+        # ── Inline edit form (only for the selected team) ────────────────────────
+        if is_editing:
+            with st.container(border=True):
+                st.markdown(f"##### Editing: {reg.get('team_name', '')}")
 
-        for _, row in edited.iterrows():
-            reg_id   = row["_id"]
-            orig_mem = list(orig_map.get(reg_id, []))
+                with st.form(key=f"form_{reg_id}"):
+                    new_team_name = st.text_input(
+                        "Team Name",
+                        value=reg.get("team_name", ""),
+                    )
 
-            updated_members = []
-            for i in range(1, _MAX_MEMBERS + 1):
-                new_name = str(row.get(f"Member {i}", "")).strip()
-                idx = i - 1
-                if idx < len(orig_mem):
-                    # Slot existed — update name, keep other fields
-                    m = dict(orig_mem[idx])
-                    m["name"] = new_name
-                    if new_name:                   # drop member if name cleared
-                        updated_members.append(m)
-                elif new_name:
-                    # Admin added a new member row (name only)
-                    updated_members.append({
-                        "name": new_name, "email": "",
-                        "institution": "", "program": "",
-                    })
+                    st.markdown("**Members**")
+                    mh = st.columns([2, 2.5, 2, 2.5])
+                    for col, lbl in zip(mh, ["Full Name", "Email", "Institution", "Program"]):
+                        col.markdown(f"<small><b>{lbl}</b></small>", unsafe_allow_html=True)
 
-            update_registration(
-                reg_id,
-                team_name=row["Team Name"],
-                admin_notes=row["Notes"],
-                members=updated_members,
-            )
+                    new_members = []
+                    for i in range(1, _MAX_MEMBERS + 1):
+                        orig = members[i - 1] if i <= len(members) else {}
+                        mc = st.columns([2, 2.5, 2, 2.5])
+                        name  = mc[0].text_input("Name",  value=orig.get("name", ""),        key=f"n_{reg_id}_{i}", label_visibility="collapsed", placeholder=f"Member {i} name")
+                        email = mc[1].text_input("Email", value=orig.get("email", ""),       key=f"e_{reg_id}_{i}", label_visibility="collapsed", placeholder="email@example.com")
+                        inst  = mc[2].text_input("Inst",  value=orig.get("institution", ""), key=f"i_{reg_id}_{i}", label_visibility="collapsed", placeholder="Institution")
+                        prog  = mc[3].text_input("Prog",  value=orig.get("program", ""),     key=f"p_{reg_id}_{i}", label_visibility="collapsed", placeholder="Program")
+                        new_members.append((name.strip(), email.strip(), inst.strip(), prog.strip()))
 
-        st.success(f"Saved {len(edited)} registration(s).")
-        st.rerun()
+                    save_col, _ = st.columns([1, 4])
+                    saved = save_col.form_submit_button("💾 Save", type="primary")
 
-    # ── Member detail expanders (email / institution / program) ────────────────
-    st.divider()
-    st.subheader("Full Member Details")
+                if saved:
+                    updated_members = [
+                        {"name": n, "email": e, "institution": ins, "program": p}
+                        for n, e, ins, p in new_members
+                        if n
+                    ]
+                    update_registration(
+                        reg_id,
+                        team_name=new_team_name,
+                        members=updated_members,
+                    )
+                    st.session_state["editing_reg_id"] = None
+                    st.success(f"✅ Saved changes for **{new_team_name}**.")
+                    st.rerun()
 
-    for reg in registrations:
-        members = reg.get("members") or []
-        with st.expander(f"**{reg['team_name']}** — {len(members)} member(s)"):
-            if not members:
-                st.write("No member data recorded.")
-                continue
-
-            hc = st.columns([2, 2.5, 2, 2.5])
-            for col, lbl in zip(hc, ["Full Name", "Email", "Institution", "Program"]):
-                col.markdown(f"**{lbl}**")
-
-            for m in members:
-                mc = st.columns([2, 2.5, 2, 2.5])
-                mc[0].write(m.get("name",        "—"))
-                mc[1].write(m.get("email",       "—"))
-                mc[2].write(m.get("institution", "—"))
-                mc[3].write(m.get("program",     "—"))
+        st.divider()

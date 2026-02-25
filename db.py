@@ -525,7 +525,7 @@ def contact_email_registered(email: str) -> bool:
 
 # ── Prelim Booking constants ────────────────────────────────────────────────────
 
-PRELIM_ROOMS: list = ["N200", "N217", "N312"]
+PRELIM_ROOMS: list = ["N200", "N217", "N300A"]
 
 PRELIM_SLOTS: list = [
     "2:00 PM – 2:10 PM",
@@ -556,6 +556,15 @@ def get_approved_team_names() -> list:
     """Return sorted list of team names from approved registrations."""
     db = get_db()
     rows = db.team_registrations.find({"status": "approved"}).sort("team_name", ASCENDING)
+    return [r["team_name"] for r in rows]
+
+
+def get_bookable_team_names() -> list:
+    """Return sorted list of team names eligible to book (pending or approved, not rejected)."""
+    db = get_db()
+    rows = db.team_registrations.find(
+        {"status": {"$in": ["pending", "approved"]}}
+    ).sort("team_name", ASCENDING)
     return [r["team_name"] for r in rows]
 
 

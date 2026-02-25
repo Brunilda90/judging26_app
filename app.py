@@ -10,6 +10,7 @@ import views.registrations_page as registrations_page
 import views.registration_page as registration_page
 import views.booking_page as booking_page
 import views.admin_bookings_page as admin_bookings_page
+import views.home_page as home_page
 
 _LOGO_LEFT = os.path.join("assets", "georgian_logo.png")
 _LOGO_RIGHT = os.path.join("assets", "autohack_logo.png")
@@ -24,6 +25,11 @@ def main():
 
     # --- Public routes (no login required) ---
     page_param = st.query_params.get("page", "")
+    if page_param == "" or page_param == "home":
+        # If already logged in, skip the home page and go straight to the dashboard
+        if not st.session_state.get("user"):
+            home_page.show()
+            return
     if page_param == "register":
         registration_page.show()
         return

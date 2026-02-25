@@ -7,9 +7,10 @@ from fpdf import FPDF
 from db import register_team, team_name_exists, contact_email_registered
 
 # ── Asset paths ────────────────────────────────────────────────────────────────
-_LOGO_AH_SVG = os.path.join("assets", "autohack_logo.svg")
-_LOGO_AH_PNG = os.path.join("assets", "autohack_logo.png")
-_LOGO_GC_PNG = os.path.join("assets", "georgian_logo.png")
+_LOGO_AH_WHITE = os.path.join("assets", "autohack_logo_white.png")
+_LOGO_AH_SVG   = os.path.join("assets", "autohack_logo.svg")
+_LOGO_AH_PNG   = os.path.join("assets", "autohack_logo.png")
+_LOGO_GC_PNG   = os.path.join("assets", "georgian_logo.png")
 
 # Background: dark sports-car photo (Unsplash, free to use)
 _BG_URL = (
@@ -183,13 +184,15 @@ def _render_header():
 
     # ── AutoHack logo: large centered cover banner ─────────────────────────────
     ah_tag = (
-        _b64_tag(_LOGO_AH_SVG,
+        _b64_tag(_LOGO_AH_WHITE,
                  "width:100%;max-width:640px;height:auto;object-fit:contain;",
                  "AutoHack 2026")
-        or
-        _b64_tag(_LOGO_AH_PNG,
-                 "width:100%;max-width:640px;height:auto;object-fit:contain;",
-                 "AutoHack 2026")
+        or _b64_tag(_LOGO_AH_SVG,
+                    "width:100%;max-width:640px;height:auto;object-fit:contain;",
+                    "AutoHack 2026")
+        or _b64_tag(_LOGO_AH_PNG,
+                    "width:100%;max-width:640px;height:auto;object-fit:contain;",
+                    "AutoHack 2026")
     )
 
     # ── Georgian College logo: small, bottom-right of banner ───────────────────

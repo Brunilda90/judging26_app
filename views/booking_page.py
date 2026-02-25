@@ -13,7 +13,7 @@ import streamlit as st
 from db import (
     PRELIM_ROOMS,
     PRELIM_SLOTS,
-    get_approved_team_names,
+    get_bookable_team_names,
     get_booking_by_team_name,
     get_booked_slot_map,
     get_team_registrations,
@@ -92,8 +92,8 @@ _CSS = f"""
 
 /* Booking confirmation card */
 .ah-booking-card {{
-    background: linear-gradient(135deg, rgba(204,0,0,0.18) 0%, rgba(26,75,153,0.22) 100%);
-    border: 1px solid rgba(204,0,0,0.45);
+    background: linear-gradient(135deg, rgba(20,60,140,0.30) 0%, rgba(10,12,22,0.85) 100%);
+    border: 1px solid rgba(74,128,212,0.55);
     border-radius: 14px;
     padding: 20px 24px;
     margin-bottom: 16px;
@@ -111,8 +111,8 @@ _CSS = f"""
     margin: 2px 0;
 }}
 .slot-mine {{
-    background: rgba(204,0,0,0.40);
-    border: 2px solid #CC0000;
+    background: rgba(26,75,153,0.55);
+    border: 2px solid #4A80D4;
     border-radius: 8px; padding: 6px 10px; text-align: center;
     color: #FFFFFF; font-size: 0.82rem; font-weight: 700;
     margin: 2px 0;
@@ -228,10 +228,12 @@ def _render_header():
 
 def _get_reg_for_team(team_name: str):
     """Return the registration document for a team name, or None."""
-    regs = get_team_registrations(status="approved")
-    for r in regs:
-        if r["team_name"] == team_name:
-            return r
+    # Search across all non-rejected statuses so pending teams are found too
+    for status in ("pending", "approved"):
+        regs = get_team_registrations(status=status)
+        for r in regs:
+            if r["team_name"] == team_name:
+                return r
     return None
 
 
@@ -312,10 +314,18 @@ def show():
     # ── Step 1: Team selection ───────────────────────────────────────────────────
     st.markdown('<p class="ah-section">Step 1 — Select Your Team</p>', unsafe_allow_html=True)
 
-    team_names = get_approved_team_names()
-    if not team_names:
-        st.info("No approved teams found yet. Please check back once registrations have been reviewed.")
-        return
+    st.markdown(
+        '<p style="color:rgba(180,195,225,0.60);font-size:0.83rem;margin-bottom:10px;">'
+        'If your team name is not in the list below, please email '
+        '<a href="mailto:Shubhneet.Sandhu@GeorgianCollege.ca" style="color:#6B9FE4;">'
+        'Shubhneet.Sandhu@GeorgianCollege.ca</a> or '
+        '<a href="mailto:Brunilda.Xhaferllari@GeorgianCollege.ca" style="color:#6B9FE4;">'
+        'Brunilda.Xhaferllari@GeorgianCollege.ca</a>.'
+        '</p>',
+        unsafe_allow_html=True,
+    )
+
+    team_names = get_bookable_team_names()
 
     selected_team = st.selectbox(
         "team_select",
@@ -325,7 +335,6 @@ def show():
     )
 
     if selected_team == "— Select your team —":
-        st.caption("Please select your team name from the dropdown above to continue.")
         return
 
     # ── Step 2: Team info confirmation ───────────────────────────────────────────
