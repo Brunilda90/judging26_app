@@ -242,7 +242,7 @@ def _render_header():
 
     subtitle = (
         '<div style="text-align:center;padding-top:12px;">'
-        '  <p class="ah-subtitle">Georgian College Hackathon — Feb 28, 2026</p>'
+        '  <p class="ah-subtitle">Georgian College x HONDA AutoHack 2026 Hackathon — Mar 06-07, 2026</p>'
         '  <div class="ah-stripe"></div>'
         '</div>'
     )
