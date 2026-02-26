@@ -14,8 +14,10 @@ import views.home_page as home_page
 import views.scheduling_page as scheduling_page
 import views.admin_scheduling_page as admin_scheduling_page
 import views.mentor_schedule_page as mentor_schedule_page
+import views.finals_scoring_page as finals_scoring_page
+import views.scoring_overview_page as scoring_overview_page
 
-_LOGO_LEFT = os.path.join("assets", "georgian_logo.png")
+_LOGO_LEFT  = os.path.join("assets", "georgian_logo.png")
 _LOGO_RIGHT = os.path.join("assets", "autohack_logo.png")
 
 
@@ -29,7 +31,6 @@ def main():
     # --- Public routes (no login required) ---
     page_param = st.query_params.get("page", "")
     if page_param == "" or page_param == "home":
-        # If already logged in, skip the home page and go straight to the dashboard
         if not st.session_state.get("user"):
             home_page.show()
             return
@@ -52,29 +53,33 @@ def main():
         render_login()
         return
 
-    # Sidebar: logos + title
+    # Sidebar: logos + title + logout
     _render_sidebar_header()
-
     st.sidebar.write(f"Logged in as **{user['username']}** ({user['role']})")
     if st.sidebar.button("Log out"):
         st.session_state.pop("user", None)
         st.rerun()
 
     if user["role"] == "admin":
+        # Admin gets full navigation
+        # Note: Manage Competitors and Customize pages are kept in the codebase
+        # but removed from navigation (use ?page=... directly if needed)
         page = st.sidebar.radio("Navigation", [
             "Team Registrations",
             "Prelim Bookings",
             "Scheduling",
             "Manage Judges",
-            "Manage Competitors",
             "Manage Questions",
-            "Customize",
+            "Scoring Overview",
             "Leaderboard",
         ])
     else:
-        page = st.sidebar.radio("Navigation", ["Enter Scores"])
+        # Judges: no navigation radio — page is determined by their assigned round.
+        # The sign-out control is embedded inside each scoring page's header.
+        judge_round = user.get("judge_round", "prelims")
+        page = "Finals Scoring" if judge_round == "finals" else "Prelims Scoring"
 
-    # Routes
+    # --- Route handlers ---
     if page == "Team Registrations":
         registrations_page.show()
     elif page == "Prelim Bookings":
@@ -83,29 +88,28 @@ def main():
         admin_scheduling_page.show()
     elif page == "Manage Judges":
         judges_page.show()
-    elif page == "Manage Competitors":
-        competitors_page.show()
     elif page == "Manage Questions":
         questions_page.show()
-    elif page == "Customize":
-        import views.customize_page as customize_page
-        customize_page.show()
-    elif page == "Enter Scores":
-        scoring_page.show()
+    elif page == "Scoring Overview":
+        scoring_overview_page.show()
     elif page == "Leaderboard":
         leaderboard_page.show()
+    elif page == "Prelims Scoring":
+        scoring_page.show()
+    elif page == "Finals Scoring":
+        finals_scoring_page.show()
 
 
 def _render_sidebar_header():
-    left_exists = os.path.exists(_LOGO_LEFT)
+    left_exists  = os.path.exists(_LOGO_LEFT)
     right_exists = os.path.exists(_LOGO_RIGHT)
 
     if left_exists and right_exists:
         c1, c2 = st.sidebar.columns(2)
-        c1.image(_LOGO_LEFT, use_container_width=True)
+        c1.image(_LOGO_LEFT,  use_container_width=True)
         c2.image(_LOGO_RIGHT, use_container_width=True)
     elif left_exists:
-        st.sidebar.image(_LOGO_LEFT, use_container_width=True)
+        st.sidebar.image(_LOGO_LEFT,  use_container_width=True)
     elif right_exists:
         st.sidebar.image(_LOGO_RIGHT, use_container_width=True)
 
@@ -129,7 +133,7 @@ def apply_background_theme():
 
 
 def render_login():
-    left_exists = os.path.exists(_LOGO_LEFT)
+    left_exists  = os.path.exists(_LOGO_LEFT)
     right_exists = os.path.exists(_LOGO_RIGHT)
 
     if left_exists or right_exists:
@@ -150,13 +154,14 @@ def render_login():
 
     if not is_db_configured():
         st.error(
-            "Database configuration missing. Create a .streamlit/secrets.toml with [database] uri and name. Login is disabled until configured."
+            "Database configuration missing. Create a .streamlit/secrets.toml with "
+            "[database] uri and name. Login is disabled until configured."
         )
         st.stop()
 
     with st.form("login_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
+        username  = st.text_input("Username")
+        password  = st.text_input("Password", type="password")
         submitted = st.form_submit_button("Log in")
 
         if submitted:

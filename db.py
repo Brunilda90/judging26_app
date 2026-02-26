@@ -97,6 +97,7 @@ def init_db():
     db.team_registrations.create_index("status")
     _init_booking_indexes(db)
     _init_scheduling_indexes(db)
+    _init_finals_indexes(db)
     create_default_admin_if_missing(db)
 
 
@@ -115,6 +116,8 @@ def get_judges_with_user():
         linked_user = db.users.find_one({"judge_id": judge["_id"], "role": "judge"})
         merged = _doc_with_id(judge)
         merged["username"] = linked_user["username"] if linked_user else None
+        merged["judge_round"] = linked_user.get("judge_round", "prelims") if linked_user else "prelims"
+        merged["prelim_room"] = judge.get("prelim_room")
         results.append(merged)
     return results
 
@@ -124,12 +127,13 @@ def insert_judge(name: str, email: str):
     db.judges.insert_one({"name": name, "email": email})
 
 
-def create_judge_account(name: str, email: str, username: str, password: str):
+def create_judge_account(name: str, email: str, username: str, password: str, judge_round: str = "prelims"):
     """
     Create judge record and associated user account.
+    judge_round: 'prelims' (default) or 'finals'
     """
     db = get_db()
-    result = db.judges.insert_one({"name": name, "email": email})
+    result = db.judges.insert_one({"name": name, "email": email, "prelim_room": None})
     judge_id = result.inserted_id
     try:
         db.users.insert_one(
@@ -138,6 +142,7 @@ def create_judge_account(name: str, email: str, username: str, password: str):
                 "password_hash": hash_password(password),
                 "role": "judge",
                 "judge_id": judge_id,
+                "judge_round": judge_round,
             }
         )
     except DuplicateKeyError:
@@ -154,14 +159,26 @@ def get_judge_by_id(judge_id: Any):
 
 
 def update_judge_account(
-    judge_id: Any, name: str, email: str, username: str, password: Optional[str] = None
+    judge_id: Any,
+    name: str,
+    email: str,
+    username: str,
+    password: Optional[str] = None,
+    judge_round: Optional[str] = None,
+    update_room: bool = False,
+    prelim_room: Optional[str] = None,
 ):
     db = get_db()
     judge_oid = _oid(judge_id)
-    db.judges.update_one({"_id": judge_oid}, {"$set": {"name": name, "email": email}})
+    judge_patch: Dict[str, Any] = {"name": name, "email": email}
+    if update_room:
+        judge_patch["prelim_room"] = prelim_room
+    db.judges.update_one({"_id": judge_oid}, {"$set": judge_patch})
     update_fields: Dict[str, Any] = {"username": username}
     if password:
         update_fields["password_hash"] = hash_password(password)
+    if judge_round is not None:
+        update_fields["judge_round"] = judge_round
     db.users.update_one(
         {"judge_id": judge_oid, "role": "judge"},
         {"$set": update_fields},
@@ -947,6 +964,232 @@ def admin_delete_robot_booking(booking_id: Any):
     """Admin: remove a robot booking entirely."""
     db = get_db()
     db.robot_bookings.delete_one({"_id": _oid(booking_id)})
+
+
+# --- Competitor auto-create ---
+
+def get_or_create_competitor_for_team(team_name: str) -> dict:
+    """Return the competitor entry for a team (by name match), creating one if absent.
+    This lets judges score any team that booked a prelim slot, even if admin has
+    not yet manually approved the registration as a competitor."""
+    db = get_db()
+    existing = db.competitors.find_one({"name": team_name})
+    if existing:
+        return _doc_with_id(existing)
+    # Auto-create from registration data (or minimal fallback)
+    reg = db.team_registrations.find_one(
+        {"team_name": team_name, "status": {"$in": ["pending", "approved"]}}
+    )
+    notes = ""
+    if reg:
+        notes = f"Project: {reg.get('project_name', '')}"
+        if reg.get("description"):
+            notes += f"\n{reg['description']}"
+    result = db.competitors.insert_one({"name": team_name, "notes": notes})
+    return {"id": str(result.inserted_id), "name": team_name, "notes": notes}
+
+
+# --- Scoring overview helpers ---
+
+def get_prelim_scoring_matrix():
+    """Return (questions, competitors_with_scores, matrix, judge_counts) for prelims.
+    matrix[comp_id][question_id] = avg_value (0–100 scale, divide by 10 to display).
+    judge_counts[comp_id] = number of judges who scored that competitor."""
+    db = get_db()
+    questions = [_doc_with_id(q) for q in db.questions.find().sort("_id", ASCENDING)]
+    competitors = [_doc_with_id(c) for c in db.competitors.find().sort("name", ASCENDING)]
+
+    agg = list(db.answers.aggregate([
+        {"$group": {
+            "_id": {"competitor_id": "$competitor_id", "question_id": "$question_id"},
+            "avg_value": {"$avg": "$value"},
+            "judge_count": {"$sum": 1},
+        }}
+    ]))
+
+    judge_count_agg = list(db.scores.aggregate([
+        {"$group": {"_id": "$competitor_id", "count": {"$sum": 1}}}
+    ]))
+    judge_counts = {str(row["_id"]): row["count"] for row in judge_count_agg}
+
+    matrix: Dict[str, Dict[str, float]] = {}
+    for row in agg:
+        cid = str(row["_id"]["competitor_id"])
+        qid = str(row["_id"]["question_id"])
+        matrix.setdefault(cid, {})[qid] = row["avg_value"]
+
+    scored = [c for c in competitors if c["id"] in matrix]
+    return questions, scored, matrix, judge_counts
+
+
+def get_finals_scoring_matrix():
+    """Same as get_prelim_scoring_matrix but for the finals_answers / finals_scores collections."""
+    db = get_db()
+    questions = [_doc_with_id(q) for q in db.questions.find().sort("_id", ASCENDING)]
+    competitors = [_doc_with_id(c) for c in db.competitors.find().sort("name", ASCENDING)]
+
+    agg = list(db.finals_answers.aggregate([
+        {"$group": {
+            "_id": {"competitor_id": "$competitor_id", "question_id": "$question_id"},
+            "avg_value": {"$avg": "$value"},
+        }}
+    ]))
+
+    judge_count_agg = list(db.finals_scores.aggregate([
+        {"$group": {"_id": "$competitor_id", "count": {"$sum": 1}}}
+    ]))
+    judge_counts = {str(row["_id"]): row["count"] for row in judge_count_agg}
+
+    matrix: Dict[str, Dict[str, float]] = {}
+    for row in agg:
+        cid = str(row["_id"]["competitor_id"])
+        qid = str(row["_id"]["question_id"])
+        matrix.setdefault(cid, {})[qid] = row["avg_value"]
+
+    scored = [c for c in competitors if c["id"] in matrix]
+    return questions, scored, matrix, judge_counts
+
+
+# --- Judge Round / Room helpers ---
+
+def get_teams_booked_in_room(room: str) -> list:
+    """Return list of {team_name, members, project_name} for every team
+    that has a prelim booking in the given room."""
+    db = get_db()
+    bookings = list(db.prelim_bookings.find({"room": room}).sort("team_name", ASCENDING))
+    result = []
+    for b in bookings:
+        tn = b["team_name"]
+        reg = db.team_registrations.find_one(
+            {"team_name": tn, "status": {"$in": ["pending", "approved"]}}
+        )
+        result.append({
+            "team_name": tn,
+            "members": reg.get("members", []) if reg else [],
+            "project_name": reg.get("project_name", "") if reg else "",
+        })
+    return result
+
+
+def get_prelim_top5() -> list:
+    """Return up to 5 competitors with the highest average prelim score
+    (only competitors that have received at least one score)."""
+    leaderboard = get_leaderboard()
+    scored = [c for c in leaderboard if c.get("num_scores", 0) > 0]
+    return scored[:5]
+
+
+def get_scores_for_judge_all(judge_id: Any) -> Dict[str, float]:
+    """Return {competitor_id_str: avg_score} for all prelim scores by a judge."""
+    db = get_db()
+    judge_oid = _oid(judge_id)
+    rows = db.scores.find({"judge_id": judge_oid})
+    return {str(row["competitor_id"]): row["value"] for row in rows}
+
+
+# --- Finals Scoring ---
+
+def _init_finals_indexes(db):
+    """Create unique indexes for finals_scores and finals_answers collections."""
+    db.finals_scores.create_index(
+        [("judge_id", ASCENDING), ("competitor_id", ASCENDING)], unique=True
+    )
+    db.finals_answers.create_index(
+        [
+            ("judge_id", ASCENDING),
+            ("competitor_id", ASCENDING),
+            ("question_id", ASCENDING),
+        ],
+        unique=True,
+    )
+
+
+def get_answers_for_judge_competitor_finals(judge_id: Any, competitor_id: Any) -> dict:
+    """Return {question_id_str: value} for a finals judge+competitor pair."""
+    db = get_db()
+    rows = db.finals_answers.find(
+        {"judge_id": _oid(judge_id), "competitor_id": _oid(competitor_id)}
+    )
+    return {str(row["question_id"]): row["value"] for row in rows}
+
+
+def save_answers_for_judge_finals(
+    judge_id: Any, competitor_id: Any, answers_dict: Dict[Any, float]
+):
+    """Save per-question answers and the aggregated score into the finals collections."""
+    db = get_db()
+    judge_oid = _oid(judge_id)
+    comp_oid = _oid(competitor_id)
+    db.finals_answers.delete_many({"judge_id": judge_oid, "competitor_id": comp_oid})
+    db.finals_scores.delete_many({"judge_id": judge_oid, "competitor_id": comp_oid})
+    if answers_dict:
+        payload = [
+            {
+                "judge_id": judge_oid,
+                "competitor_id": comp_oid,
+                "question_id": _oid(qid),
+                "value": val,
+            }
+            for qid, val in answers_dict.items()
+        ]
+        if payload:
+            db.finals_answers.insert_many(payload)
+        avg_value = sum(answers_dict.values()) / len(answers_dict)
+        db.finals_scores.insert_one(
+            {"judge_id": judge_oid, "competitor_id": comp_oid, "value": avg_value}
+        )
+
+
+def get_finals_scores_for_judge(judge_id: Any) -> Dict[str, float]:
+    """Return {competitor_id_str: avg_score} for all finals scores by a judge."""
+    db = get_db()
+    judge_oid = _oid(judge_id)
+    rows = db.finals_scores.find({"judge_id": judge_oid})
+    return {str(row["competitor_id"]): row["value"] for row in rows}
+
+
+def get_finals_leaderboard() -> list:
+    """Return all competitors sorted by average finals score descending."""
+    db = get_db()
+    pipeline = [
+        {
+            "$lookup": {
+                "from": "finals_scores",
+                "localField": "_id",
+                "foreignField": "competitor_id",
+                "as": "score_docs",
+            }
+        },
+        {
+            "$addFields": {
+                "num_scores": {"$size": "$score_docs"},
+                "total_score": {"$sum": "$score_docs.value"},
+                "avg_score": {
+                    "$cond": [
+                        {"$gt": [{"$size": "$score_docs"}, 0]},
+                        {"$avg": "$score_docs.value"},
+                        0,
+                    ]
+                },
+            }
+        },
+        {
+            "$project": {
+                "name": 1,
+                "num_scores": 1,
+                "total_score": 1,
+                "avg_score": 1,
+            }
+        },
+        {"$sort": {"avg_score": -1}},
+    ]
+    results = []
+    for row in db.competitors.aggregate(pipeline):
+        base = _doc_with_id(row)
+        base["competitor_id"] = base.pop("id")
+        base["competitor_name"] = row["name"]
+        results.append(base)
+    return results
 
 
 # --- Auth helpers ---

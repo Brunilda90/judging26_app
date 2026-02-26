@@ -1,9 +1,9 @@
 """
-views/scoring_page.py
+views/finals_scoring_page.py
 
-Prelims scoring portal — accessible to prelims judges.
+Finals scoring portal — accessible to finals judges.
 Light theme, no sidebar. Header: logos | title | user + logout.
-Teams sourced from prelim_bookings for the judge's assigned room.
+Shows the top-5 teams from prelims. Uses separate finals_scores / finals_answers collections.
 Score chips replace sliders for a cleaner, choice-based UX.
 """
 
@@ -12,14 +12,14 @@ import base64
 import streamlit as st
 
 from db import (
-    get_or_create_competitor_for_team,
     get_judge_by_id,
     get_questions,
     get_intro_message,
-    get_answers_for_judge_competitor,
-    save_answers_for_judge,
-    get_teams_booked_in_room,
-    get_scores_for_judge_all,
+    get_prelim_top5,
+    get_team_registrations,
+    get_answers_for_judge_competitor_finals,
+    save_answers_for_judge_finals,
+    get_finals_scores_for_judge,
 )
 
 # ── Asset paths ──────────────────────────────────────────────────────────────
@@ -27,11 +27,13 @@ _LOGO_AH_PNG   = os.path.join("assets", "autohack_logo.png")
 _LOGO_AH_SVG   = os.path.join("assets", "autohack_logo.svg")
 _LOGO_GC_PNG   = os.path.join("assets", "georgian_logo.png")
 
-# Contact info shown to judges at all times
+_MEDALS = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
+
+# Contact info
 _CONTACT_SHUBHNEET = "Shubhneet.Sandhu@GeorgianCollege.ca"
 _CONTACT_BRUNILDA  = "Brunilda.Xhaferllari@GeorgianCollege.ca"
 
-# ── CSS — light theme, hidden sidebar, score chips ───────────────────────────
+# ── CSS — identical light theme to scoring_page.py ───────────────────────────
 _CSS = """
 <style>
 /* ── Hide sidebar ── */
@@ -61,6 +63,30 @@ section[data-testid="stSidebar"] { display: none !important; }
     width: 100%;
     margin: 0;
 }
+
+/* ── Finalist row ── */
+.finalist-row {
+    display: flex;
+    align-items: center;
+    padding: 10px 16px;
+    border-radius: 10px;
+    margin: 5px 0;
+    background: #F5F7FD;
+    border: 1px solid rgba(74,128,212,0.15);
+}
+.finalist-rank  { font-size: 1.2rem; width: 2rem; flex-shrink: 0; }
+.finalist-name  { flex: 1; font-weight: 700; color: #1A1A2E; font-size: 0.95rem; padding: 0 14px; }
+.finalist-prelim {
+    background: rgba(74,128,212,0.10);
+    border: 1px solid rgba(74,128,212,0.30);
+    border-radius: 6px;
+    padding: 2px 10px;
+    color: #4A80D4;
+    font-size: 0.82rem;
+    font-weight: 700;
+    margin-right: 10px;
+}
+.finalist-judges { color: #9AA3BC; font-size: 0.78rem; white-space: nowrap; }
 
 /* ── Team info card ── */
 .team-info-card {
@@ -103,18 +129,16 @@ div[data-testid="stRadio"] [role="radiogroup"] > label:hover {
     background: #FFF5F5 !important;
     color: #CC0000 !important;
 }
-/* Hide the radio circle indicator */
 div[data-testid="stRadio"] [role="radiogroup"] > label > div:first-child {
     display: none !important;
 }
-/* Selected chip: red fill */
 div[data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) {
     background: #CC0000 !important;
     border-color: #CC0000 !important;
     color: #FFFFFF !important;
 }
 
-/* ── Primary button (Log Out / Save) → AutoHack red ── */
+/* ── Primary button → AutoHack red ── */
 [data-testid="stButton"] button[kind="primary"],
 [data-testid="stBaseButton-primary"] {
     background-color: #CC0000 !important;
@@ -152,7 +176,7 @@ def _b64_tag(path: str, style: str, alt: str = "") -> str:
     return f'<img src="data:{mime};base64,{b64}" style="{style}" alt="{alt}">'
 
 
-def _render_header(title: str, username: str, logout_key: str = "prelims_signout"):
+def _render_header(title: str, username: str, logout_key: str = "finals_signout"):
     """Three-column header: logos | title | signed-in info + Log Out button."""
     gc_tag = _b64_tag(
         _LOGO_GC_PNG,
@@ -204,14 +228,32 @@ def _render_header(title: str, username: str, logout_key: str = "prelims_signout
             st.session_state.pop("user", None)
             st.rerun()
 
-    # Full-width red/blue divider stripe
     st.markdown('<div class="ah-stripe" style="margin-top:8px;"></div>', unsafe_allow_html=True)
 
 
-def _render_team_card(team_info: dict):
-    name    = team_info.get("team_name", "Unknown Team")
-    project = team_info.get("project_name", "")
-    members = team_info.get("members", [])
+def _render_top5_table(top5: list):
+    rows_html = ""
+    for i, team in enumerate(top5):
+        medal     = _MEDALS[i] if i < len(_MEDALS) else f"{i+1}."
+        score_str = f"{team['avg_score'] / 10:.1f}" if team.get("avg_score") else "—"
+        judges    = team.get("num_scores", 0)
+        rows_html += (
+            f'<div class="finalist-row">'
+            f'  <span class="finalist-rank">{medal}</span>'
+            f'  <span class="finalist-name">{team["competitor_name"]}</span>'
+            f'  <span class="finalist-prelim">Prelim avg {score_str}/10</span>'
+            f'  <span class="finalist-judges">{judges} judge{"s" if judges != 1 else ""}</span>'
+            f'</div>'
+        )
+    st.markdown(rows_html, unsafe_allow_html=True)
+
+
+def _render_team_card(team_name: str, registrations: list):
+    reg = next((r for r in registrations if r["team_name"] == team_name), None)
+    if not reg:
+        return
+    project = reg.get("project_name", "")
+    members = reg.get("members", [])
     member_lines = "".join(
         f"&nbsp;&nbsp;{i}. {m.get('name', '?')} "
         f"<span style='color:#8A94B0;font-size:0.79rem;'>"
@@ -221,7 +263,7 @@ def _render_team_card(team_info: dict):
     count = len(members)
     st.markdown(
         f'<div class="team-info-card">'
-        f'  <p class="team-info-name">👥 {name}</p>'
+        f'  <p class="team-info-name">👥 {team_name}</p>'
         + (f'  <p class="team-info-proj">📐 {project}</p>' if project else "")
         + f'  <p class="team-info-members">'
         f'    <strong>{count} member{"s" if count != 1 else ""}</strong><br>'
@@ -243,23 +285,23 @@ def _score_label(v: int) -> str:
 
 
 def _render_scoring_form(judge_id, comp_id: str, comp_name: str, questions, view_only: bool):
-    """Radio chip (0–10) scoring form for one competitor."""
+    """Radio chip (0–10) scoring form for a finalist team."""
     existing = (
-        get_answers_for_judge_competitor(judge_id, comp_id)
+        get_answers_for_judge_competitor_finals(judge_id, comp_id)
         if judge_id else {}
     )
     scored      = any(int(v) > 0 for v in existing.values()) if existing else False
-    editing_key = f"prelims_editing_{judge_id}_{comp_id}"
+    editing_key = f"finals_editing_{judge_id}_{comp_id}"
     editing     = st.session_state.get(editing_key, False) if not view_only else False
 
     if not view_only:
         if scored and not editing:
-            st.success("✅ Scores already submitted for this team.")
-            if st.button("✏️ Edit Scores", key=f"prelims_edit_{comp_id}"):
+            st.success(f"✅ Finals scores submitted for **{comp_name}**.")
+            if st.button("✏️ Edit Scores", key=f"finals_edit_{comp_id}"):
                 st.session_state[editing_key] = True
                 st.rerun()
         if editing:
-            if st.button("✕ Cancel Edit", key=f"prelims_cancel_{comp_id}"):
+            if st.button("✕ Cancel Edit", key=f"finals_cancel_{comp_id}"):
                 st.session_state[editing_key] = False
                 st.rerun()
 
@@ -278,7 +320,7 @@ def _render_scoring_form(judge_id, comp_id: str, comp_name: str, questions, view
             index=stored_choice,
             horizontal=True,
             format_func=lambda x: "—" if x == 0 else str(x),
-            key=f"q_chip_{judge_id}_{comp_id}_{q['id']}",
+            key=f"finals_q_{judge_id}_{comp_id}_{q['id']}",
             disabled=view_only or (scored and not editing),
         )
         answers[q["id"]] = choice
@@ -286,7 +328,7 @@ def _render_scoring_form(judge_id, comp_id: str, comp_name: str, questions, view
 
     if not view_only and not (scored and not editing):
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("💾 Save Scores", key=f"prelims_save_{comp_id}", type="primary"):
+        if st.button("🏆 Save Finals Scores", key=f"finals_save_{comp_id}", type="primary"):
             missing = [q for q in questions if answers.get(q["id"], 0) == 0]
             if missing:
                 st.error(
@@ -295,9 +337,9 @@ def _render_scoring_form(judge_id, comp_id: str, comp_name: str, questions, view
                 )
             else:
                 cleaned = {qid: val * 10 for qid, val in answers.items()}
-                save_answers_for_judge(judge_id, comp_id, cleaned)
+                save_answers_for_judge_finals(judge_id, comp_id, cleaned)
                 st.session_state[editing_key] = False
-                st.session_state["score_saved"] = True
+                st.session_state["finals_score_saved"] = True
                 st.rerun()
 
 
@@ -311,36 +353,28 @@ def show():
         st.error("Judge access required.")
         st.stop()
 
-    # Finals judges must not access this page
-    if user.get("judge_round", "prelims") == "finals":
-        st.error("⛔ This page is for Prelims judges only.")
+    if user.get("judge_round", "prelims") != "finals":
+        st.error("⛔ This page is for Finals judges only.")
         st.stop()
 
-    # ── Apply CSS (light theme + hide sidebar) ────────────────────────────────
+    # ── Apply CSS ─────────────────────────────────────────────────────────────
     st.markdown(_CSS, unsafe_allow_html=True)
 
     # ── Header ───────────────────────────────────────────────────────────────
     username = user.get("username", "judge")
-    _render_header("Prelims Scoring", username)
+    _render_header("Finals Scoring", username)
 
-    # ── Judge profile ─────────────────────────────────────────────────────────
-    judge_id      = user.get("judge_id")
-    judge         = get_judge_by_id(judge_id) if judge_id else None
-    assigned_room = judge.get("prelim_room") if judge else None
-
-    # Room badge — shown right-aligned when room is assigned
-    if assigned_room:
-        st.markdown(
-            f'<p style="text-align:right;color:#8A94B0;font-size:0.85rem;margin:6px 0 0;">'
-            f'📍 Room Number: <strong style="color:#1A1A2E;">{assigned_room}</strong></p>',
-            unsafe_allow_html=True,
-        )
+    # Finals badge (right-aligned, below header)
+    st.markdown(
+        '<p style="text-align:right;color:#8A94B0;font-size:0.85rem;margin:6px 0 0;">'
+        '🏆 <strong style="color:#CC0000;">Finals Judge</strong></p>',
+        unsafe_allow_html=True,
+    )
 
     st.markdown('<hr style="border-color:rgba(0,0,0,0.08);margin:14px 0 18px;">', unsafe_allow_html=True)
 
-    # Toast on successful save
-    if st.session_state.pop("score_saved", False):
-        st.toast("Scores saved!", icon="✅")
+    if st.session_state.pop("finals_score_saved", False):
+        st.toast("Finals scores saved!", icon="🏆")
 
     # ── Intro message (always shown) ──────────────────────────────────────────
     intro = get_intro_message()
@@ -354,76 +388,66 @@ def show():
         f"or **Brunilda** — [{_CONTACT_BRUNILDA}](mailto:{_CONTACT_BRUNILDA})"
     )
 
-    # ── Guard: judge profile missing ──────────────────────────────────────────
-    if not judge:
-        st.error("Your judge account is missing a profile. Contact admin.")
-        st.stop()
-
     # ── Load scoring questions ────────────────────────────────────────────────
     questions = get_questions()
     if not questions:
         st.warning("Admin needs to add scoring questions first.")
         return
 
-    # ── Load teams for this room ──────────────────────────────────────────────
-    team_data     = get_teams_booked_in_room(assigned_room) if assigned_room else []
-    team_info_map = {t["team_name"]: t for t in team_data}
+    judge_id = user.get("judge_id")
 
-    # Auto-create competitor entries for each team
-    competitors = []
-    for t in team_data:
-        comp = get_or_create_competitor_for_team(t["team_name"])
-        competitors.append(comp)
-
-    # Load scores once
-    all_scores = get_scores_for_judge_all(judge_id) if judge_id else {}
-
-    # ── Build selectbox options ───────────────────────────────────────────────
-    option_labels = []
-    comp_by_label = {}
-    for c in competitors:
-        is_scored = c["id"] in all_scores and all_scores[c["id"]] > 0
-        label = f"{'✅' if is_scored else '⏳'}  {c['name']}"
-        option_labels.append(label)
-        comp_by_label[label] = c
-
-    st.markdown("---")
-
-    # Team selector — always shown, empty placeholder if no teams
-    if option_labels:
-        selected_label = st.selectbox("Select a team to score", option_labels)
-    else:
-        st.selectbox("Select a team to score", ["— No teams assigned yet —"])
-        if not assigned_room:
-            st.info(
-                "⚠️ You have not been assigned to a scoring room yet. "
-                "Please contact the event organisers using the contact details above."
-            )
-        else:
-            st.info(
-                f"No teams have booked a prelims slot in **Room {assigned_room}** yet. "
-                "Check back once teams have made their bookings."
-            )
+    # ── Top-5 from prelims ────────────────────────────────────────────────────
+    top5 = get_prelim_top5()
+    if not top5:
+        st.info(
+            "🏁 No prelims scores have been entered yet. "
+            "The top-5 finalist teams will appear here once prelims scoring is complete."
+        )
         return
 
-    # ── Scoring metrics ───────────────────────────────────────────────────────
-    scored_count = sum(
-        1 for c in competitors
-        if c["id"] in all_scores and all_scores[c["id"]] > 0
+    # ── Metrics ───────────────────────────────────────────────────────────────
+    finals_scores_map   = get_finals_scores_for_judge(judge_id) if judge_id else {}
+    top5_ids            = {t["competitor_id"] for t in top5}
+    finals_scored_count = sum(
+        1 for cid in top5_ids
+        if cid in finals_scores_map and finals_scores_map[cid] > 0
     )
     c1, c2, c3 = st.columns(3)
-    c1.metric("Teams in Room",  len(competitors))
-    c2.metric("Scored",         scored_count)
-    c3.metric("Remaining",      len(competitors) - scored_count)
+    c1.metric("Finalist Teams", len(top5))
+    c2.metric("Scored",         finals_scored_count)
+    c3.metric("Remaining",      len(top5) - finals_scored_count)
 
     st.markdown('<hr style="border-color:rgba(0,0,0,0.08);margin:12px 0 16px;">', unsafe_allow_html=True)
 
-    # ── Selected team card + scoring form ─────────────────────────────────────
-    comp = comp_by_label[selected_label]
+    st.markdown(
+        '<p style="color:#3A4060;font-size:0.95rem;font-weight:600;margin:0 0 10px;">'
+        '🏆 Finalist Teams (from Prelims)</p>',
+        unsafe_allow_html=True,
+    )
+    _render_top5_table(top5)
 
-    if comp["name"] in team_info_map:
-        _render_team_card(team_info_map[comp["name"]])
+    st.markdown('<hr style="border-color:rgba(0,0,0,0.08);margin:16px 0 16px;">', unsafe_allow_html=True)
+
+    # Load registrations for member lookups
+    all_registrations = get_team_registrations()
+
+    # ── Team selector ─────────────────────────────────────────────────────────
+    option_labels = []
+    comp_by_label = {}
+    for team in top5:
+        cid       = team["competitor_id"]
+        is_scored = cid in finals_scores_map and finals_scores_map[cid] > 0
+        label     = f"{'✅' if is_scored else '⏳'}  {team['competitor_name']}"
+        option_labels.append(label)
+        comp_by_label[label] = team
+
+    selected_label = st.selectbox("Select a finalist team to score", option_labels)
+    selected_team  = comp_by_label[selected_label]
+    comp_id        = selected_team["competitor_id"]
+    comp_name      = selected_team["competitor_name"]
+
+    _render_team_card(comp_name, all_registrations)
 
     st.markdown('<hr style="border-color:rgba(0,0,0,0.08);margin:4px 0 18px;">', unsafe_allow_html=True)
 
-    _render_scoring_form(judge_id, comp["id"], comp["name"], questions, view_only=False)
+    _render_scoring_form(judge_id, comp_id, comp_name, questions, view_only=False)

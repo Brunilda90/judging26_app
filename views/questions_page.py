@@ -83,18 +83,49 @@ def render_delete_form(question):
 
 def render_intro_message_editor():
     st.subheader("Judge intro message")
-    st.caption("Optional text shown above the competitor selector on the Enter Scores page.")
+    st.caption(
+        "Shown to judges above the team selector. Supports **Markdown** formatting: "
+        "`**bold**`, `*italic*`, bullet lists with `-` or `*`, line breaks. "
+        "Preview updates when you click outside the text box."
+    )
     current = get_intro_message() or ""
-    with st.form("intro_message_form"):
-        text = st.text_area("Intro message", value=current, height=120)
-        col_save, col_clear = st.columns([1, 1])
-        save = col_save.form_submit_button("Save intro message")
-        clear = col_clear.form_submit_button("Clear intro message")
-        if save:
-            set_intro_message(text.strip())
+
+    # Two-column layout: editor (left) | live preview (right)
+    col_edit, col_preview = st.columns([1, 1])
+
+    with col_edit:
+        st.caption("✏️ Edit")
+        new_text = st.text_area(
+            "Intro message (Markdown)",
+            value=current,
+            height=180,
+            key="intro_md_editor",
+            label_visibility="collapsed",
+            placeholder="e.g. Welcome judges! Please score each team on all criteria before moving to the next.",
+        )
+
+    with col_preview:
+        st.caption("👁 Preview (as judges will see it)")
+        preview_text = st.session_state.get("intro_md_editor", current)
+        if preview_text and preview_text.strip():
+            st.info(preview_text)
+        else:
+            st.markdown(
+                '<p style="color:#999;font-style:italic;font-size:0.85rem;">'
+                'No intro message — preview will appear here as you type.</p>',
+                unsafe_allow_html=True,
+            )
+
+    col_save, col_clear = st.columns([1, 1])
+    with col_save:
+        if st.button("💾 Save intro message", key="save_intro_btn"):
+            set_intro_message(new_text.strip())
             st.success("Intro message saved.")
             st.rerun()
-        if clear:
+    with col_clear:
+        if st.button("🗑️ Clear intro message", key="clear_intro_btn"):
             clear_intro_message()
             st.success("Intro message cleared.")
             st.rerun()
+
+    st.divider()
