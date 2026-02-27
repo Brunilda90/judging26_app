@@ -9,10 +9,13 @@ checkbox, then book up to 2 mentor sessions and up to 2 robot demo sessions
 across two time windows:
   - Friday  Mar 6, 2026  6:20 PM – 8:00 PM  (5 × 20-min slots)
   - Saturday Mar 7, 2026 10:00 AM – 1:20 PM (10 × 20-min slots)
+
+Cancellation is blocked once the slot's start time has passed (EST = Barrie).
 """
 
 import os
 import base64
+from datetime import datetime, timezone, timedelta
 import streamlit as st
 
 from db import (
@@ -35,7 +38,7 @@ from db import (
     cancel_robot_booking,
 )
 
-# ── Asset paths ─────────────────────────────────────────────────────────────────
+# ── Asset paths ────────────────────────────────────────────────────────────────
 _LOGO_AH_SVG   = os.path.join("assets", "autohack_logo.svg")
 _LOGO_AH_PNG   = os.path.join("assets", "autohack_logo.png")
 _LOGO_AH_WHITE = os.path.join("assets", "autohack_logo_white.png")
@@ -46,7 +49,44 @@ _BG_URL = (
     "?auto=format&fit=crop&w=1920&q=80"
 )
 
-# ── CSS ─────────────────────────────────────────────────────────────────────────
+# ── EST timezone (UTC-5) ───────────────────────────────────────────────────────
+# March 6-7, 2026 fall before DST change (Mar 8), so Barrie is on EST = UTC-5
+_EST = timezone(timedelta(hours=-5))
+
+
+def _make_est(year: int, month: int, day: int, hour: int, minute: int) -> datetime:
+    return datetime(year, month, day, hour, minute, tzinfo=_EST)
+
+
+# Slot start-time lookup (used to block cancellations of past sessions)
+_SLOT_START: dict = {
+    "Fri Mar 6 \u00b7 6:20 \u2013 6:40 PM":    _make_est(2026, 3, 6, 18, 20),
+    "Fri Mar 6 \u00b7 6:40 \u2013 7:00 PM":    _make_est(2026, 3, 6, 18, 40),
+    "Fri Mar 6 \u00b7 7:00 \u2013 7:20 PM":    _make_est(2026, 3, 6, 19,  0),
+    "Fri Mar 6 \u00b7 7:20 \u2013 7:40 PM":    _make_est(2026, 3, 6, 19, 20),
+    "Fri Mar 6 \u00b7 7:40 \u2013 8:00 PM":    _make_est(2026, 3, 6, 19, 40),
+    "Sat Mar 7 \u00b7 10:00 \u2013 10:20 AM":  _make_est(2026, 3, 7, 10,  0),
+    "Sat Mar 7 \u00b7 10:20 \u2013 10:40 AM":  _make_est(2026, 3, 7, 10, 20),
+    "Sat Mar 7 \u00b7 10:40 \u2013 11:00 AM":  _make_est(2026, 3, 7, 10, 40),
+    "Sat Mar 7 \u00b7 11:00 \u2013 11:20 AM":  _make_est(2026, 3, 7, 11,  0),
+    "Sat Mar 7 \u00b7 11:20 \u2013 11:40 AM":  _make_est(2026, 3, 7, 11, 20),
+    "Sat Mar 7 \u00b7 11:40 AM \u2013 12:00 PM": _make_est(2026, 3, 7, 11, 40),
+    "Sat Mar 7 \u00b7 12:00 \u2013 12:20 PM":  _make_est(2026, 3, 7, 12,  0),
+    "Sat Mar 7 \u00b7 12:20 \u2013 12:40 PM":  _make_est(2026, 3, 7, 12, 20),
+    "Sat Mar 7 \u00b7 12:40 \u2013  1:00 PM":  _make_est(2026, 3, 7, 12, 40),
+    "Sat Mar 7 \u00b7  1:00 \u2013  1:20 PM":  _make_est(2026, 3, 7, 13,  0),
+}
+
+
+def _slot_has_passed(slot_label: str) -> bool:
+    """Return True if the slot's start time is in the past (Barrie EST)."""
+    start = _SLOT_START.get(slot_label)
+    if start is None:
+        return False  # Unknown slot — allow cancel
+    return datetime.now(tz=_EST) >= start
+
+
+# ── CSS ────────────────────────────────────────────────────────────────────────
 _CSS = f"""
 <style>
 .stApp {{
@@ -92,7 +132,10 @@ _CSS = f"""
     margin-bottom: 12px;
 }}
 .ah-info-card p {{ color: rgba(220,230,250,0.90) !important; margin: 4px 0 !important; }}
-.ah-info-label {{ color: #6B9FE4 !important; font-weight: 600 !important; font-size: 0.82rem !important; text-transform: uppercase; letter-spacing: 0.8px; }}
+.ah-info-label {{
+    color: #6B9FE4 !important; font-weight: 600 !important;
+    font-size: 0.82rem !important; text-transform: uppercase; letter-spacing: 0.8px;
+}}
 
 /* Booking confirmation cards */
 .ah-booking-card {{
@@ -128,7 +171,7 @@ _CSS = f"""
     margin: 2px 0;
 }}
 
-/* Tabs — make labels clearly readable on dark background */
+/* Tabs */
 .stTabs [data-baseweb="tab-list"] {{
     background-color: rgba(12, 15, 30, 0.65) !important;
     border-radius: 10px !important;
@@ -154,15 +197,24 @@ _CSS = f"""
 /* General text */
 .stMarkdown p, .stMarkdown li {{ color: rgba(225,230,245,0.90) !important; }}
 label, .stRadio label {{ color: rgba(220,228,245,0.90) !important; }}
-[data-baseweb="base-input"] {{ background: rgba(18,20,40,0.92) !important; border: 1px solid rgba(255,255,255,0.16) !important; border-radius: 8px !important; }}
-[data-baseweb="base-input"] input {{ background: transparent !important; color: #FFFFFF !important; -webkit-text-fill-color: #FFFFFF !important; }}
+[data-baseweb="base-input"] {{
+    background: rgba(18,20,40,0.92) !important;
+    border: 1px solid rgba(255,255,255,0.16) !important;
+    border-radius: 8px !important;
+}}
+[data-baseweb="base-input"] input {{
+    background: transparent !important;
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+}}
 [data-testid="stBaseButton-primary"] {{
     background-color: #CC0000 !important; border-color: #CC0000 !important;
     color: white !important; font-weight: 700 !important; border-radius: 8px !important;
     text-transform: uppercase !important; box-shadow: 0 4px 24px rgba(204,0,0,0.45) !important;
 }}
 [data-testid="stBaseButton-primary"]:hover {{
-    background-color: #EE1111 !important; box-shadow: 0 6px 32px rgba(204,0,0,0.65) !important;
+    background-color: #EE1111 !important;
+    box-shadow: 0 6px 32px rgba(204,0,0,0.65) !important;
     transform: translateY(-1px) !important;
 }}
 hr {{ border-color: rgba(255,255,255,0.10) !important; }}
@@ -170,7 +222,7 @@ hr {{ border-color: rgba(255,255,255,0.10) !important; }}
 """
 
 
-# ── Asset helpers ────────────────────────────────────────────────────────────────
+# ── Asset helpers ──────────────────────────────────────────────────────────────
 
 def _b64_tag(path: str, style: str, alt: str = "") -> str:
     if not os.path.exists(path):
@@ -233,18 +285,18 @@ def _render_header():
     st.markdown(banner + subtitle, unsafe_allow_html=True)
 
 
-# ── Slot key helpers ─────────────────────────────────────────────────────────────
+# ── Slot key helpers ───────────────────────────────────────────────────────────
 
 def _is_friday_slot(slot_label: str) -> bool:
     return slot_label.startswith("Fri")
 
 
 def _short(slot_label: str) -> str:
-    """Strip the day prefix, e.g. 'Fri Mar 6 · 6:20 – 6:40 PM' → '6:20 – 6:40 PM'."""
+    """Strip the day prefix: 'Fri Mar 6 · 6:20 – 6:40 PM' → '6:20 – 6:40 PM'."""
     return slot_label.split("\u00b7", 1)[-1].strip()
 
 
-# ── Availability grids ────────────────────────────────────────────────────────────
+# ── Availability grids ─────────────────────────────────────────────────────────
 
 def _mentor_rooms_ordered() -> list:
     """Distinct rooms from MENTOR_ROOM_MAP in insertion order."""
@@ -252,10 +304,13 @@ def _mentor_rooms_ordered() -> list:
 
 
 def _render_mentor_grid(mentor_booked_map: dict, my_team: str):
-    """Mentor availability grid — identical format to the robot/prelims grid.
+    """Mentor availability grid.
     Rows = time slots.  Columns = Rooms (N200, N217, N300A).
-    A cell is ⭐ You if the team has a booking in that room at that slot,
-    Full if all mentors in the room are taken, or Free otherwise.
+
+    Cell states:
+      ⭐ You   — this team has a booking in this room at this slot
+      Full     — The room are booked (red)
+      Free     — no bookings in this room at this slot (green)
     """
     rooms = _mentor_rooms_ordered()
     mentors_per_room = {r: [m for m, rm in MENTOR_ROOM_MAP.items() if rm == r] for r in rooms}
@@ -294,21 +349,23 @@ def _render_mentor_grid(mentor_booked_map: dict, my_team: str):
             unsafe_allow_html=True,
         )
         for i, room in enumerate(rooms, start=1):
-            mentors = mentors_per_room[room]
+            mentors   = mentors_per_room[room]
             team_here = any(
                 mentor_booked_map.get(f"{slot}||{m}") == my_team for m in mentors
             )
-            all_taken = all(f"{slot}||{m}" in mentor_booked_map for m in mentors)
+            any_booked = any(f"{slot}||{m}" in mentor_booked_map for m in mentors)
+
             if team_here:
-                row[i].markdown('<div class="slot-mine">⭐ You</div>', unsafe_allow_html=True)
-            elif all_taken:
-                row[i].markdown('<div class="slot-taken">Full</div>', unsafe_allow_html=True)
+                row[i].markdown('<div class="slot-mine">&#11088; You</div>', unsafe_allow_html=True)
+            elif any_booked:
+                # Any booking in this room at this slot means it's full (one team per room)
+                row[i].markdown('<div class="slot-taken">Taken</div>', unsafe_allow_html=True)
             else:
                 row[i].markdown('<div class="slot-free">Free</div>', unsafe_allow_html=True)
 
 
 def _render_robot_grid(robot_booked_map: dict, my_team: str):
-    """Robot availability grid — identical format to the prelims rooms grid.
+    """Robot availability grid.
     Rows = time slots.  Columns = Room N200 / N217 / N300A.
     """
     col_widths = [2.0] + [1.0] * len(SCHED_ROBOT_ROOMS)
@@ -348,17 +405,17 @@ def _render_robot_grid(robot_booked_map: dict, my_team: str):
         for i, room in enumerate(SCHED_ROBOT_ROOMS, start=1):
             occupant = robot_booked_map.get(f"{slot}||{room}")
             if occupant and occupant == my_team:
-                row[i].markdown('<div class="slot-mine">⭐ You</div>', unsafe_allow_html=True)
+                row[i].markdown('<div class="slot-mine">&#11088; You</div>', unsafe_allow_html=True)
             elif occupant:
                 row[i].markdown('<div class="slot-taken">Taken</div>', unsafe_allow_html=True)
             else:
                 row[i].markdown('<div class="slot-free">Free</div>', unsafe_allow_html=True)
 
 
-# ── Slot pickers ─────────────────────────────────────────────────────────────────
+# ── Slot pickers ───────────────────────────────────────────────────────────────
 
 def _mentor_slot_picker(mentor_booked_map: dict, team_booked_slots: set):
-    """Dropdown of available mentor slot + room combos — same format as robot picker.
+    """Dropdown of available mentor slot + room combos.
     Returns (slot_label, room) or (None, None)."""
     rooms = _mentor_rooms_ordered()
     mentors_per_room = {r: [m for m, rm in MENTOR_ROOM_MAP.items() if rm == r] for r in rooms}
@@ -369,12 +426,12 @@ def _mentor_slot_picker(mentor_booked_map: dict, team_booked_slots: set):
             continue
         for room in rooms:
             mentors = mentors_per_room[room]
-            if any(f"{slot}||{m}" not in mentor_booked_map for m in mentors):
+            if not any(f"{slot}||{m}" in mentor_booked_map for m in mentors):
                 day = "Fri" if _is_friday_slot(slot) else "Sat"
                 options.append((f"{_short(slot)}  —  Room {room}  ({day})", slot, room))
 
     if not options:
-        st.warning("⚠️ No mentor sessions are currently available. Please contact the organizers.")
+        st.warning("No mentor sessions are currently available. Please contact the organizers.")
         return None, None
 
     choice = st.selectbox(
@@ -390,7 +447,7 @@ def _mentor_slot_picker(mentor_booked_map: dict, team_booked_slots: set):
 
 
 def _robot_slot_picker(robot_booked_map: dict, team_booked_slots: set):
-    """Dropdown of available slot + room combos (like prelims). Returns (slot_label, room) or (None, None)."""
+    """Dropdown of available slot + room combos. Returns (slot_label, room) or (None, None)."""
     options = []  # list of (display_label, slot_label, room)
     for slot in SCHED_ALL_SLOTS:
         if slot in team_booked_slots:
@@ -401,7 +458,7 @@ def _robot_slot_picker(robot_booked_map: dict, team_booked_slots: set):
                 options.append((f"{_short(slot)}  —  Room {room}  ({day})", slot, room))
 
     if not options:
-        st.warning("⚠️ No robot sessions are currently available. Please contact the organizers.")
+        st.warning("No robot sessions are currently available. Please contact the organizers.")
         return None, None
 
     choice = st.selectbox(
@@ -416,7 +473,7 @@ def _robot_slot_picker(robot_booked_map: dict, team_booked_slots: set):
     return None, None
 
 
-# ── Mentor tab ───────────────────────────────────────────────────────────────────
+# ── Mentor tab ─────────────────────────────────────────────────────────────────
 
 def _mentor_tab(team_name: str):
     mentor_bookings   = get_mentor_bookings_for_team(team_name)
@@ -424,55 +481,16 @@ def _mentor_tab(team_name: str):
     slots_used        = len(mentor_bookings)
     team_booked_slots = {b["slot_label"] for b in mentor_bookings}
 
-    # ── Friday encouragement ──────────────────────────────────────────────────
-    has_friday = any(_is_friday_slot(b["slot_label"]) for b in mentor_bookings)
-    if not has_friday and slots_used < MAX_MENTOR_BOOKINGS:
-        st.warning(
-            "⚠️ **Please prioritise a Friday evening session (6:20–8:00 PM)!** "
-            "Getting mentor feedback on Friday gives you all of Saturday to apply it. "
-            "Book a Friday slot below — it makes a big difference."
-        )
+    # ── Friday encouragement ───────────────────────────────────────────────────
+    # has_friday = any(_is_friday_slot(b["slot_label"]) for b in mentor_bookings)
+    # if not has_friday and slots_used < MAX_MENTOR_BOOKINGS:
+    #     st.warning(
+    #         "**Please prioritise a Friday evening session (6:20–8:00 PM)!** "
+    #         "Getting mentor feedback on Friday gives you all of Saturday to apply it. "
+    #         "Book a Friday slot below — it makes a big difference."
+    #     )
 
-    # ── Availability grid FIRST ───────────────────────────────────────────────
-    st.markdown('<p class="ah-section">Availability Overview</p>', unsafe_allow_html=True)
-    st.write("Green = free  ·  Full = all mentors in that room are taken  ·  ⭐ = your session")
-    _render_mentor_grid(mentor_booked_map, team_name)
-
-    st.divider()
-
-    # ── Your current bookings ─────────────────────────────────────────────────
-    st.markdown('<p class="ah-section">Your Mentor Sessions</p>', unsafe_allow_html=True)
-
-    if mentor_bookings:
-        for b in mentor_bookings:
-            day_tag = "🟡 Friday" if _is_friday_slot(b["slot_label"]) else "🔵 Saturday"
-            room = MENTOR_ROOM_MAP.get(b.get("mentor_name", ""), "—")
-            st.markdown(
-                f'<div class="ah-booking-card">'
-                f'<p><strong>{_short(b["slot_label"])}</strong>'
-                f'  &nbsp;·&nbsp;  Room {room}'
-                f' &nbsp;<span style="opacity:0.60;font-size:0.78rem;">({day_tag})</span></p>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-            if st.button(
-                f"Cancel – {_short(b['slot_label'])} / Room {room}",
-                key=f"cancel_mentor_{b['id']}",
-            ):
-                cancel_mentor_booking(b["id"])
-                st.success("Mentor session cancelled.")
-                st.rerun()
-    else:
-        st.info("No mentor sessions booked yet.")
-
-    if slots_used >= MAX_MENTOR_BOOKINGS:
-        st.success(
-            f"✅ You've booked all {MAX_MENTOR_BOOKINGS} mentor sessions. "
-            "Cancel one above if you need to change it."
-        )
-        return
-
-    # ── Booking form ──────────────────────────────────────────────────────────
+        # ── Booking form ───────────────────────────────────────────────────────────
     remaining = MAX_MENTOR_BOOKINGS - slots_used
     st.divider()
     st.markdown(
@@ -483,70 +501,97 @@ def _mentor_tab(team_name: str):
 
     chosen_slot, chosen_room = _mentor_slot_picker(mentor_booked_map, team_booked_slots)
     if chosen_slot and chosen_room:
-        if st.button("Book Mentor Session", type="primary", use_container_width=True):
+        if st.button("Book Mentor Session", type="primary", use_container_width=True,
+                     key="book_mentor_btn"):
             try:
                 create_mentor_booking_room(team_name, chosen_room, chosen_slot)
                 st.success(
-                    f"🎉 Mentor session booked for **{_short(chosen_slot)}** in **Room {chosen_room}**!"
+                    f"Mentor session booked for **{_short(chosen_slot)}** in **Room {chosen_room}**!"
                 )
                 st.rerun()
             except ValueError as exc:
                 st.error(str(exc))
 
+    # ── Your current bookings ──────────────────────────────────────────────────
+    st.markdown('<p class="ah-section">Your Mentor Sessions</p>', unsafe_allow_html=True)
 
-# ── Robot tab ────────────────────────────────────────────────────────────────────
+    if mentor_bookings:
+        for b in mentor_bookings:
+            day_tag   = "Friday" if _is_friday_slot(b["slot_label"]) else "Saturday"
+            room      = MENTOR_ROOM_MAP.get(b.get("mentor_name", ""), "—")
+            short_slot = _short(b["slot_label"])
+            passed    = _slot_has_passed(b["slot_label"])
 
-def _robot_tab(team_name: str):
-    robot_bookings   = get_robot_bookings_for_team(team_name)
-    robot_booked_map = get_robot_booked_map()
-    slots_used       = len(robot_bookings)
-    team_booked_slots = {b["slot_label"] for b in robot_bookings}
-
-    st.info(
-        f"🤖 Each team can book up to **{MAX_ROBOT_BOOKINGS}** robot demo sessions. "
-        "Slots are shared across three rooms — pick any available time."
-    )
-
-    # ── Availability grid FIRST ───────────────────────────────────────────────
-    st.markdown('<p class="ah-section">Availability Overview</p>', unsafe_allow_html=True)
-    st.write("Green = free  ·  Red = taken  ·  ⭐ = your session")
-    _render_robot_grid(robot_booked_map, team_name)
-
-    st.divider()
-
-    # ── Your current bookings ─────────────────────────────────────────────────
-    st.markdown('<p class="ah-section">Your Robot Sessions</p>', unsafe_allow_html=True)
-
-    if robot_bookings:
-        for b in robot_bookings:
-            day_tag = "🟡 Friday" if _is_friday_slot(b["slot_label"]) else "🔵 Saturday"
             st.markdown(
                 f'<div class="ah-booking-card">'
-                f'<p><strong>{_short(b["slot_label"])}</strong>'
-                f'  &nbsp;·&nbsp;  Room {b["room"]}'
-                f' &nbsp;<span style="opacity:0.60;font-size:0.78rem;">({day_tag})</span></p>'
+                f'<p><strong>{short_slot}</strong>'
+                f'  &nbsp;·&nbsp;  Room {room}'
+                f'  &nbsp;<span style="opacity:0.60;font-size:0.78rem;">({day_tag})</span>'
+                + (
+                    '  &nbsp;<span style="color:rgba(200,150,0,0.70);font-size:0.75rem;'
+                    'font-style:italic;">Session completed</span>'
+                    if passed else ""
+                )
+                + '</p>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
-            short_slot = _short(b["slot_label"])
-            if st.button(
-                f"Cancel – {short_slot} / Room {b['room']}",
-                key=f"cancel_robot_{b['id']}",
-            ):
-                cancel_robot_booking(b["id"])
-                st.success("Robot session cancelled.")
-                st.rerun()
-    else:
-        st.info("No robot sessions booked yet.")
 
-    if slots_used >= MAX_ROBOT_BOOKINGS:
+            if passed:
+                st.markdown(
+                    '<p style="color:rgba(200,150,50,0.65);font-size:0.78rem;'
+                    'font-style:italic;margin:-6px 0 8px 4px;">'
+                    'This session time has passed — cancellation is no longer available.</p>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                if st.button(
+                    f"Cancel – {short_slot} / Room {room}",
+                    key=f"cancel_mentor_{b['id']}",
+                ):
+                    cancel_mentor_booking(b["id"])
+                    st.success("Mentor session cancelled.")
+                    st.rerun()
+    else:
+        st.info("No mentor sessions booked yet.")
+
+    if slots_used >= MAX_MENTOR_BOOKINGS:
         st.success(
-            f"✅ You've booked all {MAX_ROBOT_BOOKINGS} robot sessions. "
-            "Cancel one above if you need to change it."
+            f"You've booked all {MAX_MENTOR_BOOKINGS} mentor sessions. "
+            "To change a future session, cancel it above and rebook."
         )
+        # Still show the grid below for reference
+        st.divider()
+        st.markdown('<p class="ah-section">Availability Overview</p>', unsafe_allow_html=True)
+        st.write(
+            "Green = free  ·  Red = taken  ·  ⭐ = your session"
+        )
+        _render_mentor_grid(mentor_booked_map, team_name)
         return
 
-    # ── Booking form ──────────────────────────────────────────────────────────
+    # ── Availability grid (below bookings + picker) ────────────────────────────
+    st.divider()
+    st.markdown('<p class="ah-section">Availability Overview</p>', unsafe_allow_html=True)
+    st.write(
+        "Green = free  ·  Red = taken  ·  ⭐ = your session"
+    )
+    _render_mentor_grid(mentor_booked_map, team_name)
+
+
+# ── Robot tab ──────────────────────────────────────────────────────────────────
+
+def _robot_tab(team_name: str):
+    robot_bookings    = get_robot_bookings_for_team(team_name)
+    robot_booked_map  = get_robot_booked_map()
+    slots_used        = len(robot_bookings)
+    team_booked_slots = {b["slot_label"] for b in robot_bookings}
+
+    # st.info(
+    #     f"Each team can book up to **{MAX_ROBOT_BOOKINGS}** robot demo sessions. "
+    #     "Slots are shared across three rooms — pick any available time."
+    # )
+
+    # ── Booking form ───────────────────────────────────────────────────────────
     remaining = MAX_ROBOT_BOOKINGS - slots_used
     st.divider()
     st.markdown(
@@ -557,18 +602,79 @@ def _robot_tab(team_name: str):
 
     chosen_slot, chosen_room = _robot_slot_picker(robot_booked_map, team_booked_slots)
     if chosen_slot and chosen_room:
-        if st.button("Book Robot Session", type="primary", use_container_width=True):
+        if st.button("Book Robot Session", type="primary", use_container_width=True,
+                     key="book_robot_btn"):
             try:
                 create_robot_booking(team_name, chosen_room, chosen_slot)
                 st.success(
-                    f"🎉 Robot session booked for **{_short(chosen_slot)}** — Room **{chosen_room}**!"
+                    f"Robot session booked for **{_short(chosen_slot)}** — Room **{chosen_room}**!"
                 )
                 st.rerun()
             except ValueError as exc:
                 st.error(str(exc))
 
+    # ── Your current bookings ──────────────────────────────────────────────────
+    st.markdown('<p class="ah-section">Your Robot Sessions</p>', unsafe_allow_html=True)
 
-# ── Main entry point ─────────────────────────────────────────────────────────────
+    if robot_bookings:
+        for b in robot_bookings:
+            day_tag    = "Friday" if _is_friday_slot(b["slot_label"]) else "Saturday"
+            short_slot = _short(b["slot_label"])
+            passed     = _slot_has_passed(b["slot_label"])
+
+            st.markdown(
+                f'<div class="ah-booking-card">'
+                f'<p><strong>{short_slot}</strong>'
+                f'  &nbsp;·&nbsp;  Room {b["room"]}'
+                f'  &nbsp;<span style="opacity:0.60;font-size:0.78rem;">({day_tag})</span>'
+                + (
+                    '  &nbsp;<span style="color:rgba(200,150,0,0.70);font-size:0.75rem;'
+                    'font-style:italic;">Session completed</span>'
+                    if passed else ""
+                )
+                + '</p>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+            if passed:
+                st.markdown(
+                    '<p style="color:rgba(200,150,50,0.65);font-size:0.78rem;'
+                    'font-style:italic;margin:-6px 0 8px 4px;">'
+                    'This session time has passed — cancellation is no longer available.</p>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                if st.button(
+                    f"Cancel – {short_slot} / Room {b['room']}",
+                    key=f"cancel_robot_{b['id']}",
+                ):
+                    cancel_robot_booking(b["id"])
+                    st.success("Robot session cancelled.")
+                    st.rerun()
+    else:
+        st.info("No robot sessions booked yet.")
+
+    if slots_used >= MAX_ROBOT_BOOKINGS:
+        st.success(
+            f"You've booked all {MAX_ROBOT_BOOKINGS} robot sessions. "
+            "To change a future session, cancel it above and rebook."
+        )
+        # Still show the grid below for reference
+        st.divider()
+        st.markdown('<p class="ah-section">Availability Overview</p>', unsafe_allow_html=True)
+        st.write("Green = free  ·  Red = taken  ·  ⭐ = your session")
+        _render_robot_grid(robot_booked_map, team_name)
+        return
+
+    # ── Availability grid (below bookings + picker) ────────────────────────────
+    st.divider()
+    st.markdown('<p class="ah-section">Availability Overview</p>', unsafe_allow_html=True)
+    st.write("Green = free  ·  Red = taken  ·  ⭐ = your session")
+    _render_robot_grid(robot_booked_map, team_name)
+
+
+# ── Main entry point ───────────────────────────────────────────────────────────
 
 def show():
     _render_header()
@@ -581,7 +687,7 @@ def show():
     )
     st.divider()
 
-    # ── Step 1: Email lookup ─────────────────────────────────────────────────────
+    # ── Step 1: Email lookup ───────────────────────────────────────────────────
     st.markdown(
         '<p class="ah-section">Step 1 — Enter Your Registration Email</p>',
         unsafe_allow_html=True,
@@ -613,7 +719,7 @@ def show():
     reg = get_team_by_member_email(email)
     if not reg:
         st.error(
-            "⚠️ No registered team found for this email address. "
+            "No registered team found for this email address. "
             "Please double-check for typos, or contact the organizers."
         )
         return
@@ -623,7 +729,7 @@ def show():
         st.session_state["sched_confirm_check"] = False
         st.session_state["_sched_last_email"] = email
 
-    # ── Step 2: Confirm team details ─────────────────────────────────────────────
+    # ── Step 2: Confirm team details ───────────────────────────────────────────
     st.divider()
     st.markdown(
         '<p class="ah-section">Step 2 — Confirm Your Team Details</p>',
@@ -650,8 +756,19 @@ def show():
         unsafe_allow_html=True,
     )
 
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stCheckbox"] label p {
+            color: #F2F3F4 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
     confirmed = st.checkbox(
-        "✅  Yes, this is my team — the information above is correct",
+        "Yes, this is my team — the information above is correct",
         key="sched_confirm_check",
     )
     if not confirmed:
@@ -659,7 +776,7 @@ def show():
 
     selected_team = reg["team_name"]
 
-    # ── Step 3: Booking tabs ──────────────────────────────────────────────────────
+    # ── Step 3: Booking tabs ───────────────────────────────────────────────────
     st.divider()
     st.markdown(
         '<p class="ah-section">Step 3 — Book Your Sessions</p>',

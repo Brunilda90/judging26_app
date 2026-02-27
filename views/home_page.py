@@ -242,7 +242,7 @@ def _render_header():
 
     subtitle = (
         '<div style="text-align:center;padding-top:12px;">'
-        '  <p class="ah-subtitle">Georgian College x HONDA AutoHack 2026 Hackathon — Mar 06-07, 2026</p>'
+        '  <p class="ah-subtitle">Georgian College x HONDA Automotive Hackathon 2026— Mar 06-07, 2026</p>'
         '  <div class="ah-stripe"></div>'
         '</div>'
     )
@@ -272,36 +272,6 @@ def show():
         <span class="card-arrow">→</span>
       </a>
 
-      <a href="/?page=book" class="portal-card card-booking">
-        <span class="card-icon">📅</span>
-        <span class="card-title">Prelims Slot Booking</span>
-        <span class="card-desc">
-          Book your 10-minute demo slot for the<br>
-          prelims round (2:00 PM – 3:30 PM).
-        </span>
-        <span class="card-arrow">→</span>
-      </a>
-
-      <a href="/?page=login" class="portal-card card-admin">
-        <span class="card-icon">⚙️</span>
-        <span class="card-title">Admin Portal</span>
-        <span class="card-desc">
-          Event organizers: manage registrations,<br>
-          bookings, judges, and competitors.
-        </span>
-        <span class="card-arrow">→</span>
-      </a>
-
-      <a href="/?page=login" class="portal-card card-judge">
-        <span class="card-icon">⚖️</span>
-        <span class="card-title">Judge Portal</span>
-        <span class="card-desc">
-          Competition judges: log in to enter<br>
-          scores for competing teams.
-        </span>
-        <span class="card-arrow">→</span>
-      </a>
-
       <a href="/?page=schedule" class="portal-card card-schedule">
         <span class="card-icon">🗓️</span>
         <span class="card-title">Mentor &amp; Robot Schedule</span>
@@ -312,12 +282,42 @@ def show():
         <span class="card-arrow">→</span>
       </a>
 
+      <a href="/?page=book" class="portal-card card-booking">
+        <span class="card-icon">📅</span>
+        <span class="card-title">Prelims Slot Booking</span>
+        <span class="card-desc">
+          Book your 10-minute demo slot for the<br>
+          prelims round (2:00 PM – 3:30 PM).
+        </span>
+        <span class="card-arrow">→</span>
+      </a>
+
       <a href="/?page=mentor_schedule" class="portal-card card-mentor-view">
         <span class="card-icon">📋</span>
         <span class="card-title">Mentor Schedule View</span>
         <span class="card-desc">
           Mentors: see which teams have booked
           sessions in your room and when.
+        </span>
+        <span class="card-arrow">→</span>
+      </a>
+
+      <a href="/?page=login&role=judge" class="portal-card card-judge">
+        <span class="card-icon">⚖️</span>
+        <span class="card-title">Judge Portal</span>
+        <span class="card-desc">
+          Competition judges: log in to enter<br>
+          scores for competing teams.
+        </span>
+        <span class="card-arrow">→</span>
+      </a>
+
+      <a href="/?page=login&role=admin" class="portal-card card-admin">
+        <span class="card-icon">⚙️</span>
+        <span class="card-title">Admin Portal</span>
+        <span class="card-desc">
+          Event organizers: manage registrations,<br>
+          bookings, judges, and competitors.
         </span>
         <span class="card-arrow">→</span>
       </a>

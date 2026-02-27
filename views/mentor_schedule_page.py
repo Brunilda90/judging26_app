@@ -1,17 +1,21 @@
 """
 views/mentor_schedule_page.py
 
-Read-only mentor schedule calendar.
-Accessible via ?page=mentor_schedule (no login required).
+Read-only mentor schedule calendar — password-protected.
+Accessible via ?page=mentor_schedule.
+
+Login credentials (hardcoded, no DB lookup needed for mentors):
+  Username : AutoHackMentor
+  Password : AH2026!Mentor
 
 Displays all team mentor session bookings in a calendar-style grid,
 split by day (Friday Mar 6 / Saturday Mar 7), with rooms as columns
-and time slots as rows. Mentors can see which teams are booked in
-their room and when.
+and time slots as rows.
 """
 
 import os
 import base64
+import hashlib
 import streamlit as st
 
 from db import (
@@ -21,7 +25,14 @@ from db import (
     get_all_mentor_bookings,
 )
 
-# ── Asset paths ─────────────────────────────────────────────────────────────────
+# ── Mentor portal credentials ──────────────────────────────────────────────────
+_MENTOR_USERNAME = "AutoHackMentor"
+# Store password as SHA-256 so the plain string isn't sitting in code at runtime
+_MENTOR_PASSWORD_HASH = hashlib.sha256("AH2026!Mentor".encode()).hexdigest()
+
+_SESSION_KEY = "mentor_authenticated"  # st.session_state flag
+
+# ── Asset paths ────────────────────────────────────────────────────────────────
 _LOGO_AH_SVG   = os.path.join("assets", "autohack_logo.svg")
 _LOGO_AH_PNG   = os.path.join("assets", "autohack_logo.png")
 _LOGO_AH_WHITE = os.path.join("assets", "autohack_logo_white.png")
@@ -32,7 +43,7 @@ _BG_URL = (
     "?auto=format&fit=crop&w=1920&q=80"
 )
 
-# ── CSS ─────────────────────────────────────────────────────────────────────────
+# ── CSS ────────────────────────────────────────────────────────────────────────
 _CSS = f"""
 <style>
 .stApp {{
@@ -71,6 +82,79 @@ _CSS = f"""
     border-left: 3px solid #CC0000; padding: 2px 0 2px 10px; margin: 6px 0 12px;
 }}
 
+/* Login form card */
+.login-card {{
+    background: rgba(16, 20, 42, 0.72);
+    border: 1px solid rgba(74,128,212,0.30);
+    border-radius: 16px;
+    padding: 32px 36px 28px;
+    max-width: 420px;
+    margin: 0 auto;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.40);
+}}
+.login-title {{
+    color: #FFFFFF;
+    font-size: 1.10rem;
+    font-weight: 700;
+    text-align: center;
+    margin: 0 0 6px;
+    letter-spacing: 0.5px;
+}}
+.login-sub {{
+    color: rgba(180,200,235,0.55);
+    font-size: 0.82rem;
+    text-align: center;
+    margin: 0 0 24px;
+    letter-spacing: 0.3px;
+}}
+
+/* Input fields */
+[data-baseweb="base-input"] {{
+    background: rgba(18,20,40,0.92) !important;
+    border: 1px solid rgba(255,255,255,0.16) !important;
+    border-radius: 8px !important;
+}}
+[data-baseweb="base-input"] input {{
+    background: transparent !important;
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+}}
+label {{ color: rgba(200,215,245,0.80) !important; font-size: 0.86rem !important; }}
+
+/* Primary button */
+[data-testid="stBaseButton-primary"] {{
+    background-color: #CC0000 !important; border-color: #CC0000 !important;
+    color: white !important; font-weight: 700 !important;
+    font-size: 0.95rem !important; letter-spacing: 0.8px !important;
+    border-radius: 8px !important; text-transform: uppercase !important;
+    box-shadow: 0 4px 24px rgba(204,0,0,0.45) !important;
+}}
+[data-testid="stBaseButton-primary"]:hover {{
+    background-color: #EE1111 !important;
+    box-shadow: 0 6px 32px rgba(204,0,0,0.65) !important;
+    transform: translateY(-1px) !important;
+}}
+
+/* Signed-in sub-bar */
+.mentor-subbar {{
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 8px 0 4px;
+}}
+.mentor-badge {{
+    display: inline-block;
+    background: rgba(74,128,212,0.14);
+    border: 1px solid rgba(74,128,212,0.35);
+    color: rgba(200,215,245,0.80);
+    font-size: 0.80rem;
+    font-weight: 600;
+    padding: 5px 14px;
+    border-radius: 20px;
+    letter-spacing: 0.4px;
+}}
+
 /* Day banner */
 .cal-day-banner {{
     background: linear-gradient(90deg, rgba(204,0,0,0.14) 0%, rgba(74,128,212,0.12) 100%);
@@ -79,12 +163,8 @@ _CSS = f"""
     padding: 12px 20px;
     margin: 4px 0 14px;
 }}
-.cal-day-title {{
-    color: #FFFFFF; font-size: 1.05rem; font-weight: 700; margin: 0;
-}}
-.cal-day-sub {{
-    color: rgba(190,205,230,0.65); font-size: 0.80rem; margin: 3px 0 0;
-}}
+.cal-day-title {{ color: #FFFFFF; font-size: 1.05rem; font-weight: 700; margin: 0; }}
+.cal-day-sub   {{ color: rgba(190,205,230,0.65); font-size: 0.80rem; margin: 3px 0 0; }}
 
 /* Grid header */
 .cal-grid-header {{
@@ -159,8 +239,8 @@ _CSS = f"""
     border-radius: 12px !important;
     padding: 12px 16px !important;
 }}
-[data-testid="stMetricLabel"] {{ color: rgba(180,200,235,0.75) !important; font-size: 0.78rem !important; }}
-[data-testid="stMetricValue"] {{ color: #FFFFFF !important; font-size: 1.6rem !important; font-weight: 700 !important; }}
+[data-testid="stMetricLabel"]  {{ color: rgba(180,200,235,0.75) !important; font-size: 0.78rem !important; }}
+[data-testid="stMetricValue"]  {{ color: #FFFFFF !important; font-size: 1.6rem !important; font-weight: 700 !important; }}
 
 /* General text */
 .stMarkdown p, .stMarkdown li {{ color: rgba(225,230,245,0.90) !important; }}
@@ -169,7 +249,7 @@ hr {{ border-color: rgba(255,255,255,0.10) !important; }}
 """
 
 
-# ── Asset helpers ────────────────────────────────────────────────────────────────
+# ── Asset helpers ──────────────────────────────────────────────────────────────
 
 def _b64_tag(path: str, style: str, alt: str = "") -> str:
     if not os.path.exists(path):
@@ -195,7 +275,6 @@ def _render_header():
                     "width:100%;max-width:560px;height:auto;object-fit:contain;",
                     "AutoHack 2026")
     )
-
     gc_tag = _b64_tag(
         _LOGO_GC_PNG,
         "height:44px;object-fit:contain;opacity:0.80;",
@@ -218,21 +297,68 @@ def _render_header():
             f'{gc_tag}'
             '</div>'
             if gc_tag else ""
-        ) +
-        '</div>'
+        )
+        + '</div>'
     )
-
     subtitle = (
         '<div style="text-align:center;padding-top:12px;">'
         '  <p class="ah-subtitle">Mentor Schedule</p>'
         '  <div class="ah-stripe"></div>'
         '</div>'
     )
-
     st.markdown(banner + subtitle, unsafe_allow_html=True)
 
 
-# ── Data helpers ─────────────────────────────────────────────────────────────────
+# ── Auth helpers ───────────────────────────────────────────────────────────────
+
+def _check_password(username: str, password: str) -> bool:
+    if username.strip() != _MENTOR_USERNAME:
+        return False
+    return hashlib.sha256(password.encode()).hexdigest() == _MENTOR_PASSWORD_HASH
+
+
+def _render_login():
+    """Render the branded login form. Stops execution after rendering."""
+    _render_header()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Centred login card
+    _, col, _ = st.columns([1, 2, 1])
+    with col:
+        st.markdown(
+            '<div class="login-card">'
+            '  <p class="login-title">🔐 Mentor Portal</p>'
+            '  <p class="login-sub">Sign in to view the session schedule</p>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+        username = st.text_input("Username", key="mentor_login_user")
+        password = st.text_input("Password", type="password", key="mentor_login_pw")
+
+        if st.button("Sign In", type="primary", use_container_width=True,
+                     key="mentor_login_btn"):
+            if _check_password(username, password):
+                st.session_state[_SESSION_KEY] = True
+                st.rerun()
+            else:
+                st.error("Incorrect username or password.")
+
+        st.markdown(
+            '<p style="color:rgba(180,195,225,0.40);font-size:0.76rem;'
+            'text-align:center;margin-top:18px;">'
+            'Need access? Contact '
+            '<a href="mailto:Shubhneet.Sandhu@GeorgianCollege.ca" '
+            'style="color:rgba(107,159,228,0.70);">'
+            'Shubhneet.Sandhu@GeorgianCollege.ca</a></p>',
+            unsafe_allow_html=True,
+        )
+
+    st.stop()
+
+
+# ── Data helpers ───────────────────────────────────────────────────────────────
 
 def _short(slot_label: str) -> str:
     """Strip day prefix: 'Fri Mar 6 · 6:20 – 6:40 PM' → '6:20 – 6:40 PM'."""
@@ -240,7 +366,6 @@ def _short(slot_label: str) -> str:
 
 
 def _rooms_ordered() -> list:
-    """Distinct mentor rooms in MENTOR_ROOM_MAP insertion order."""
     return list(dict.fromkeys(MENTOR_ROOM_MAP.values()))
 
 
@@ -261,21 +386,14 @@ def _build_schedule_map(bookings: list) -> dict:
     return result
 
 
-# ── Calendar grid renderer ────────────────────────────────────────────────────────
+# ── Calendar grid renderer ─────────────────────────────────────────────────────
 
 def _render_day_grid(slots: list, schedule_map: dict, rooms: list, mpr: dict):
-    """Render a single day's calendar grid.
-    slots   — list of slot_label strings for this day
-    mpr     — {room: [mentor_name, ...]} (capacity per room)
-    """
     col_widths = [1.8] + [1.0] * len(rooms)
 
-    # ── Header row ────────────────────────────────────────────────────────────
+    # Header row
     hcols = st.columns(col_widths)
-    hcols[0].markdown(
-        '<p class="cal-grid-header-left">Time</p>',
-        unsafe_allow_html=True,
-    )
+    hcols[0].markdown('<p class="cal-grid-header-left">Time</p>', unsafe_allow_html=True)
     for i, room in enumerate(rooms, start=1):
         cap = len(mpr[room])
         hcols[i].markdown(
@@ -285,39 +403,57 @@ def _render_day_grid(slots: list, schedule_map: dict, rooms: list, mpr: dict):
             unsafe_allow_html=True,
         )
 
-    # ── Slot rows ─────────────────────────────────────────────────────────────
+    # Slot rows
     for slot in slots:
         row = st.columns(col_widths)
-
-        # Time column
         row[0].markdown(
             f'<p class="cal-time">{_short(slot)}</p>',
             unsafe_allow_html=True,
         )
-
-        # Room columns
         for i, room in enumerate(rooms, start=1):
             teams   = schedule_map.get((slot, room), [])
             cap     = len(mpr[room])
             is_full = len(teams) >= cap
 
             if not teams:
-                row[i].markdown(
-                    '<div class="cal-open">Open</div>',
-                    unsafe_allow_html=True,
-                )
+                row[i].markdown('<div class="cal-open">Open</div>', unsafe_allow_html=True)
             else:
                 cell_class = "cal-team-full" if is_full else "cal-team"
-                inner = "".join(
-                    f'<div class="{cell_class}">{t}</div>' for t in teams
-                )
+                inner = "".join(f'<div class="{cell_class}">{t}</div>' for t in teams)
                 row[i].markdown(inner, unsafe_allow_html=True)
 
 
-# ── Main entry point ─────────────────────────────────────────────────────────────
+# ── Main entry point ───────────────────────────────────────────────────────────
 
 def show():
+    # ── Auth gate ──────────────────────────────────────────────────────────────
+    if not st.session_state.get(_SESSION_KEY):
+        _render_login()
+        return  # _render_login() calls st.stop() but return is here for clarity
+
+    # ── Authenticated: render page ─────────────────────────────────────────────
     _render_header()
+
+    # Sign-out sub-bar (right-aligned, below banner)
+    st.markdown("<br>", unsafe_allow_html=True)
+    col_badge, col_btn = st.columns([6, 2])
+    with col_badge:
+        st.markdown(
+            '<div style="display:flex;align-items:center;gap:10px;">'
+            '<span class="mentor-badge">👤 Mentor Portal</span>'
+            '<span style="color:rgba(180,195,225,0.45);font-size:0.80rem;">'
+            f'Signed in as <strong style="color:rgba(200,215,245,0.75);">'
+            f'{_MENTOR_USERNAME}</strong></span>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+    with col_btn:
+        if st.button("↩ Sign Out", type="primary", use_container_width=True,
+                     key="mentor_signout"):
+            st.session_state.pop(_SESSION_KEY, None)
+            st.rerun()
+
+    st.divider()
 
     st.markdown(
         "This page shows all **mentor session bookings** made by student teams. "
@@ -326,27 +462,27 @@ def show():
     )
     st.divider()
 
-    # ── Load data ─────────────────────────────────────────────────────────────
-    bookings      = get_all_mentor_bookings()
-    schedule_map  = _build_schedule_map(bookings)
-    rooms         = _rooms_ordered()
-    mpr           = _mentors_per_room()
+    # ── Load data ──────────────────────────────────────────────────────────────
+    bookings     = get_all_mentor_bookings()
+    schedule_map = _build_schedule_map(bookings)
+    rooms        = _rooms_ordered()
+    mpr          = _mentors_per_room()
 
     total_possible = sum(len(mpr[r]) for r in rooms) * (
         len(SCHED_FRIDAY_SLOTS) + len(SCHED_SATURDAY_SLOTS)
     )
-    fri_booked  = sum(1 for b in bookings if b["slot_label"].startswith("Fri"))
-    sat_booked  = sum(1 for b in bookings if b["slot_label"].startswith("Sat"))
+    fri_booked   = sum(1 for b in bookings if b["slot_label"].startswith("Fri"))
+    sat_booked   = sum(1 for b in bookings if b["slot_label"].startswith("Sat"))
     total_booked = len(bookings)
 
-    # ── Metrics ───────────────────────────────────────────────────────────────
+    # ── Metrics ────────────────────────────────────────────────────────────────
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Booked",     total_booked)
-    c2.metric("Friday Sessions",  fri_booked)
-    c3.metric("Saturday Sessions", sat_booked)
+    c1.metric("Total Booked",       total_booked)
+    c2.metric("Friday Sessions",    fri_booked)
+    c3.metric("Saturday Sessions",  sat_booked)
     c4.metric("Remaining Capacity", total_possible - total_booked)
 
-    # ── Legend ────────────────────────────────────────────────────────────────
+    # ── Legend ─────────────────────────────────────────────────────────────────
     st.markdown(
         '<p style="color:rgba(180,195,225,0.55);font-size:0.80rem;margin:4px 0 0;">'
         '&nbsp;&nbsp;'
@@ -362,7 +498,7 @@ def show():
 
     st.divider()
 
-    # ── Friday grid ───────────────────────────────────────────────────────────
+    # ── Friday grid ────────────────────────────────────────────────────────────
     st.markdown(
         '<div class="cal-day-banner">'
         '  <p class="cal-day-title">📅 Friday, March 6</p>'
@@ -374,7 +510,7 @@ def show():
 
     st.divider()
 
-    # ── Saturday grid ─────────────────────────────────────────────────────────
+    # ── Saturday grid ──────────────────────────────────────────────────────────
     st.markdown(
         '<div class="cal-day-banner">'
         '  <p class="cal-day-title">📅 Saturday, March 7</p>'
