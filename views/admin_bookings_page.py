@@ -15,6 +15,7 @@ from db import (
     admin_update_booking,
     admin_delete_booking,
     get_approved_team_names,
+    get_booking_history,
 )
 
 _KNOWN_APP_URL = "https://judgingapp26.streamlit.app"
@@ -167,5 +168,64 @@ def show():
             label="📥 Export Bookings CSV",
             data=output.getvalue(),
             file_name="prelim_bookings.csv",
+            mime="text/csv",
+        )
+
+    st.divider()
+
+    # ── Booking History / Audit Log ──────────────────────────────────────────────
+    st.subheader("📜 Booking History")
+    st.caption(
+        "Audit log of every booking action (initial book, switches, admin edits/deletes). "
+        "Most recent first. Use this to verify what a team booked and when."
+    )
+
+    history = get_booking_history()
+
+    if not history:
+        st.info("No booking events recorded yet.")
+    else:
+        import csv, io
+        import pandas as pd
+
+        _action_labels = {
+            "booked":        "✅ Booked",
+            "switched":      "🔄 Switched",
+            "admin_updated": "✏️ Admin Updated",
+            "admin_deleted": "🗑️ Admin Deleted",
+        }
+
+        rows = []
+        for h in history:
+            ts = h.get("timestamp")
+            ts_str = ts.strftime("%Y-%m-%d %H:%M:%S UTC") if hasattr(ts, "strftime") else str(ts or "—")
+            action = h.get("action", "")
+            prev = ""
+            if h.get("previous_slot") and h.get("previous_room"):
+                prev = f"{h['previous_slot']} · Room {h['previous_room']}"
+            rows.append({
+                "Timestamp (UTC)": ts_str,
+                "Team": h.get("team_name", "—"),
+                "Action": _action_labels.get(action, action),
+                "Slot": h.get("slot_label", "—"),
+                "Room": h.get("room", "—"),
+                "Previous Slot / Room": prev or "—",
+            })
+
+        df = pd.DataFrame(rows)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+        # Export history as CSV
+        hist_output = io.StringIO()
+        hist_writer = csv.DictWriter(
+            hist_output,
+            fieldnames=["Timestamp (UTC)", "Team", "Action", "Slot", "Room", "Previous Slot / Room"],
+        )
+        hist_writer.writeheader()
+        hist_writer.writerows(rows)
+        st.download_button(
+            label="📥 Export History CSV",
+            data=hist_output.getvalue(),
+            file_name="prelim_booking_history.csv",
             mime="text/csv",
         )

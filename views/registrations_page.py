@@ -1,8 +1,9 @@
 import streamlit as st
 from db import get_team_registrations, update_registration
 
-_KNOWN_APP_URL = "https://judgingapp26.streamlit.app"
-_MAX_MEMBERS   = 6
+_KNOWN_APP_URL    = "https://judgingapp26.streamlit.app"
+_MAX_MEMBERS      = 6   # public registration cap (students see 6 slots)
+_ADMIN_MAX_MEMBERS = 7  # admin-only: allows adding a 7th member via edit form
 
 
 def _registration_link() -> str:
@@ -127,8 +128,17 @@ def show():
                         col.markdown(f"<small><b>{lbl}</b></small>", unsafe_allow_html=True)
 
                     new_members = []
-                    for i in range(1, _MAX_MEMBERS + 1):
+                    for i in range(1, _ADMIN_MAX_MEMBERS + 1):
                         orig = members[i - 1] if i <= len(members) else {}
+                        # Visually separate the 7th member row so the admin
+                        # knows it is an exceptional override slot
+                        if i == 7:
+                            st.markdown(
+                                '<p style="font-size:0.78rem;color:#888;'
+                                'font-style:italic;margin:10px 0 4px;">'
+                                '⚠️ Member 7 — admin override (exception only)</p>',
+                                unsafe_allow_html=True,
+                            )
                         mc = st.columns([2, 2.5, 2, 2.5])
                         name  = mc[0].text_input("Name",  value=orig.get("name", ""),        key=f"n_{reg_id}_{i}", label_visibility="collapsed", placeholder=f"Member {i} name")
                         email = mc[1].text_input("Email", value=orig.get("email", ""),       key=f"e_{reg_id}_{i}", label_visibility="collapsed", placeholder="email@example.com")

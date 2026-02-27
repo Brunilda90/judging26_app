@@ -96,6 +96,7 @@ def init_db():
     db.team_registrations.create_index("contact_email")
     db.team_registrations.create_index("status")
     _init_booking_indexes(db)
+    _init_booking_history_indexes(db)
     _init_scheduling_indexes(db)
     _init_finals_indexes(db)
     create_default_admin_if_missing(db)
@@ -583,6 +584,46 @@ def _init_booking_indexes(db):
     db.prelim_bookings.create_index("team_name", unique=True)
 
 
+def _init_booking_history_indexes(db):
+    """Create indexes for the prelim_booking_history audit collection."""
+    db.prelim_booking_history.create_index([("timestamp", ASCENDING)])
+    db.prelim_booking_history.create_index([("team_name", ASCENDING)])
+
+
+def log_booking_event(
+    team_name: str,
+    slot_label: str,
+    room: str,
+    action: str,
+    previous_slot: Optional[str] = None,
+    previous_room: Optional[str] = None,
+):
+    """Append an entry to the prelim booking audit log.
+
+    action values: 'booked', 'switched', 'admin_updated', 'admin_deleted'
+    """
+    db = get_db()
+    doc: Dict[str, Any] = {
+        "team_name": team_name,
+        "slot_label": slot_label,
+        "room": room,
+        "action": action,
+        "timestamp": datetime.utcnow(),
+    }
+    if previous_slot is not None:
+        doc["previous_slot"] = previous_slot
+    if previous_room is not None:
+        doc["previous_room"] = previous_room
+    db.prelim_booking_history.insert_one(doc)
+
+
+def get_booking_history() -> list:
+    """Return all prelim booking audit-log entries, newest first."""
+    db = get_db()
+    rows = db.prelim_booking_history.find().sort("timestamp", -1)
+    return [_doc_with_id(r) for r in rows]
+
+
 def get_approved_team_names() -> list:
     """Return sorted list of team names from approved registrations."""
     db = get_db()
@@ -640,6 +681,7 @@ def create_booking(team_name: str, slot_label: str, room: str) -> str:
     }
     try:
         result = db.prelim_bookings.insert_one(doc)
+        log_booking_event(team_name, slot_label, room, "booked")
         return str(result.inserted_id)
     except DuplicateKeyError:
         raise ValueError(f"Slot '{slot_label}' in room {room} is already taken.")
@@ -648,6 +690,10 @@ def create_booking(team_name: str, slot_label: str, room: str) -> str:
 def switch_booking(team_name: str, new_slot_label: str, new_room: str) -> str:
     """Delete existing booking for team and create a new one atomically."""
     db = get_db()
+    # Capture old booking details for the audit log before deleting
+    old = db.prelim_bookings.find_one({"team_name": team_name})
+    old_slot = old["slot_label"] if old else None
+    old_room = old["room"] if old else None
     # Remove old booking first
     db.prelim_bookings.delete_many({"team_name": team_name})
     doc = {
@@ -658,6 +704,7 @@ def switch_booking(team_name: str, new_slot_label: str, new_room: str) -> str:
     }
     try:
         result = db.prelim_bookings.insert_one(doc)
+        log_booking_event(team_name, new_slot_label, new_room, "switched", old_slot, old_room)
         return str(result.inserted_id)
     except DuplicateKeyError:
         raise ValueError(f"Slot '{new_slot_label}' in room {new_room} is already taken.")
@@ -666,6 +713,8 @@ def switch_booking(team_name: str, new_slot_label: str, new_room: str) -> str:
 def admin_update_booking(booking_id: Any, slot_label: str, room: str):
     """Admin: update any booking's slot/room. Raises ValueError on slot conflict."""
     db = get_db()
+    # Capture current booking details for the audit log
+    current = db.prelim_bookings.find_one({"_id": _oid(booking_id)})
     # Check the target slot isn't taken by a different booking
     conflict = db.prelim_bookings.find_one({
         "slot_label": slot_label,
@@ -678,12 +727,23 @@ def admin_update_booking(booking_id: Any, slot_label: str, room: str):
         {"_id": _oid(booking_id)},
         {"$set": {"slot_label": slot_label, "room": room}},
     )
+    if current:
+        log_booking_event(
+            current["team_name"], slot_label, room, "admin_updated",
+            current.get("slot_label"), current.get("room"),
+        )
 
 
 def admin_delete_booking(booking_id: Any):
     """Admin: remove a booking entirely."""
     db = get_db()
+    current = db.prelim_bookings.find_one({"_id": _oid(booking_id)})
     db.prelim_bookings.delete_one({"_id": _oid(booking_id)})
+    if current:
+        log_booking_event(
+            current["team_name"], current.get("slot_label", ""), current.get("room", ""),
+            "admin_deleted",
+        )
 
 
 # ── Mentor & Robot Scheduling constants ─────────────────────────────────────────
