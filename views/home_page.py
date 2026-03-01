@@ -272,7 +272,7 @@ def show():
         <span class="card-arrow">→</span>
       </a>
 
-      <a href="/?page=schedule" class="portal-card card-schedule">
+      <a href="/?page=mentor-robot-schedule" class="portal-card card-schedule">
         <span class="card-icon">🗓️</span>
         <span class="card-title">Mentor &amp; Robot Schedule</span>
         <span class="card-desc">
@@ -334,5 +334,11 @@ def show():
         '<a href="mailto:Shubhneet.Sandhu@GeorgianCollege.ca" '
         'style="color:rgba(107,159,228,0.70);">Shubhneet.Sandhu@GeorgianCollege.ca</a>'
         '</p>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        '<p style="text-align:center;color:rgba(180,190,215,0.30);'
+        'font-size:0.72rem;margin-top:8px;">Powered by Research and Innovation, Georgian College</p>',
         unsafe_allow_html=True,
     )

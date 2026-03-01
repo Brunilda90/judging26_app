@@ -37,7 +37,6 @@ def show():
     if st.session_state.pop("reset_add_judge_form", False):
         for key in (
             "add_judge_name",
-            "add_judge_email",
             "add_judge_username",
             "add_judge_password",
         ):
@@ -47,7 +46,6 @@ def show():
     with st.form("add_judge"):
         st.subheader("Add new judge")
         name     = st.text_input("Judge name",       key="add_judge_name")
-        email    = st.text_input("Judge email",      key="add_judge_email")
         username = st.text_input("Judge username",   key="add_judge_username")
         password = st.text_input("Temporary password", type="password", key="add_judge_password")
 
@@ -56,22 +54,30 @@ def show():
             _ROUND_OPTIONS,
             format_func=lambda x: _ROUND_LABELS[x],
             key="add_judge_round",
-            help="Prelims judges score during the first round; Finals judges score the top-5.",
+            help="Prelims judges score during the first round; Finals judges score the top-6.",
+        )
+
+        room_create = st.selectbox(
+            "Assigned Prelim Room",
+            _ROOM_OPTIONS,
+            key="add_judge_room",
+            help="Only applies to Prelims judges. Ignored for Finals judges.",
         )
 
         submitted = st.form_submit_button("Add judge")
 
         if submitted:
-            if not name.strip() or not email.strip() or not username.strip() or not password:
-                st.error("Name, email, username, and password are required.")
+            if not name.strip() or not username.strip() or not password:
+                st.error("Name, username, and password are required.")
             else:
                 try:
+                    new_room = (room_create if room_create != "-- No room --" else None) if round_create == "prelims" else None
                     create_judge_account(
                         name.strip(),
-                        email.strip(),
                         username.strip(),
                         password,
                         judge_round=round_create,
+                        prelim_room=new_room,
                     )
                     st.session_state["reset_add_judge_form"] = True
                     st.session_state["judge_add_success"] = (
@@ -79,7 +85,7 @@ def show():
                     )
                     st.rerun()
                 except DuplicateKeyError:
-                    st.error("Email or username already exists.")
+                    st.error("Username already exists.")
 
     # ── Current judges list ───────────────────────────────────────────────────
     st.subheader("Current judges")
@@ -95,13 +101,12 @@ def show():
 
         round_label = _ROUND_LABELS.get(j_round, j_round.capitalize())
         room_label  = f" · Room {j_room}" if j_room else ""
-        expander_title = f"{judge['name']} ({judge['email']}) — {round_label}{room_label}"
+        expander_title = f"{judge['name']} — {round_label}{room_label}"
 
         with st.expander(expander_title):
             # ── Edit form ─────────────────────────────────────────────────
             with st.form(f"edit_judge_{judge['id']}"):
                 name_val     = st.text_input("Name",     value=judge["name"])
-                email_val    = st.text_input("Email",    value=judge["email"])
                 username_val = st.text_input("Username", value=judge["username"] or "")
                 password_val = st.text_input(
                     "New password (leave blank to keep)", type="password"
@@ -138,15 +143,14 @@ def show():
 
                 updated = st.form_submit_button("Save changes")
                 if updated:
-                    if not name_val.strip() or not email_val.strip() or not username_val.strip():
-                        st.error("Name, email, and username are required.")
+                    if not name_val.strip() or not username_val.strip():
+                        st.error("Name and username are required.")
                     else:
                         try:
                             new_room = room_val if room_val != "-- No room --" else None
                             update_judge_account(
                                 judge["id"],
                                 name_val.strip(),
-                                email_val.strip(),
                                 username_val.strip(),
                                 password=password_val or None,
                                 judge_round=round_val,
@@ -156,7 +160,7 @@ def show():
                             st.success("Judge updated.")
                             st.rerun()
                         except DuplicateKeyError:
-                            st.error("Email or username already exists.")
+                            st.error("Username already exists.")
 
             # ── Delete form ───────────────────────────────────────────────
             with st.form(f"delete_judge_{judge['id']}"):

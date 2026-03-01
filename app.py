@@ -1,7 +1,14 @@
 import os
 import base64
+
 import streamlit as st
-from db import init_db, authenticate_user, get_background_color, is_db_configured
+
+from db import (
+    init_db, authenticate_user, get_background_color, is_db_configured,
+    create_session, get_session, delete_session,
+)
+
+_SESSION_PARAM = "s"   # URL query-param key that holds the session token
 import views.judges_page as judges_page
 import views.competitors_page as competitors_page
 import views.scoring_page as scoring_page
@@ -87,6 +94,19 @@ _LOGIN_CSS = f"""
     color: #FFFFFF !important;
     -webkit-text-fill-color: #FFFFFF !important;
 }}
+[data-baseweb="base-input"] button,
+[data-baseweb="input"] button,
+[data-testid="stTextInput"] button {{
+    opacity: 1 !important;
+    background: transparent !important;
+    border: none !important;
+}}
+[data-baseweb="base-input"] button svg,
+[data-baseweb="input"] button svg,
+[data-testid="stTextInput"] button svg {{
+    filter: brightness(0) invert(1) !important;
+    opacity: 1 !important;
+}}
 label {{ color: rgba(200,215,245,0.80) !important; font-size: 0.86rem !important; }}
 [data-testid="stBaseButton-primary"] {{
     background-color: #CC0000 !important; border-color: #CC0000 !important;
@@ -119,6 +139,30 @@ def _b64_tag(path: str, style: str, alt: str = "") -> str:
 def main():
     st.set_page_config(page_title="AutoHack 2026", layout="wide")
 
+    # ── Query-param + MongoDB session persistence ────────────────────────────────
+    # The session token lives in the URL (?s=<token>) which survives page refresh.
+
+    # Handle logout requested by scoring pages
+    if st.session_state.pop("_do_logout", False):
+        token = st.query_params.get(_SESSION_PARAM)
+        if token:
+            delete_session(token)
+            del st.query_params[_SESSION_PARAM]
+        st.session_state.pop("user", None)
+        st.rerun()
+
+    # Restore session from DB when session_state was wiped (page refresh)
+    if not st.session_state.get("user"):
+        token = st.query_params.get(_SESSION_PARAM)
+        if token:
+            user_data = get_session(token)
+            if user_data:
+                st.session_state["user"] = user_data
+            else:
+                # Token expired or invalid — clean up URL
+                del st.query_params[_SESSION_PARAM]
+
+
     # Create DB indexes and seed default admin
     init_db()
     apply_background_theme()
@@ -135,7 +179,7 @@ def main():
     if page_param == "book":
         booking_page.show()
         return
-    if page_param == "schedule":
+    if page_param == "mentor-robot-schedule":
         scheduling_page.show()
         return
     if page_param == "mentor_schedule":
@@ -152,7 +196,7 @@ def main():
     _render_sidebar_header()
     st.sidebar.write(f"Logged in as **{user['username']}** ({user['role']})")
     if st.sidebar.button("Log out"):
-        st.session_state.pop("user", None)
+        st.session_state["_do_logout"] = True
         st.rerun()
 
     if user["role"] == "admin":
@@ -162,7 +206,7 @@ def main():
         page = st.sidebar.radio("Navigation", [
             "Team Registrations",
             "Prelim Bookings",
-            "Scheduling",
+            "Mentor - Robot Scheduling",
             "Manage Judges",
             "Manage Questions",
             "Scoring Overview",
@@ -179,7 +223,7 @@ def main():
         registrations_page.show()
     elif page == "Prelim Bookings":
         admin_bookings_page.show()
-    elif page == "Scheduling":
+    elif page == "Mentor - Robot Scheduling":
         admin_scheduling_page.show()
     elif page == "Manage Judges":
         judges_page.show()
@@ -308,7 +352,10 @@ def render_login():
             if submitted:
                 user = authenticate_user(username.strip(), password)
                 if user:
-                    st.session_state["user"] = dict(user)
+                    user_dict = dict(user)
+                    st.session_state["user"] = user_dict
+                    token = create_session(user_dict)
+                    st.query_params[_SESSION_PARAM] = token
                     st.rerun()
                 else:
                     st.error("Invalid username or password.")

@@ -1,13 +1,14 @@
 import hashlib
 import os
+import secrets
 from typing import Any, Dict, Optional
+from datetime import datetime, timedelta
 
 import streamlit as st
 from bson import ObjectId
 from pymongo import ASCENDING, MongoClient
 from pymongo.errors import DuplicateKeyError
 from bson.binary import Binary
-from datetime import datetime
 
 def _get_mongo_uri() -> str:
     # Streamlit Cloud exposes secrets via st.
@@ -82,7 +83,12 @@ def init_db():
         )
         return
     db = get_db()
-    db.judges.create_index("email", unique=True)
+    # Make email index sparse so judges without emails don't conflict
+    try:
+        db.judges.drop_index("email_1")
+    except Exception:
+        pass
+    db.judges.create_index("email", unique=True, sparse=True)
     db.users.create_index("username", unique=True)
     db.users.create_index("judge_id", unique=True, sparse=True)
     db.scores.create_index(
@@ -128,13 +134,13 @@ def insert_judge(name: str, email: str):
     db.judges.insert_one({"name": name, "email": email})
 
 
-def create_judge_account(name: str, email: str, username: str, password: str, judge_round: str = "prelims"):
+def create_judge_account(name: str, username: str, password: str, judge_round: str = "prelims", prelim_room: Optional[str] = None):
     """
     Create judge record and associated user account.
     judge_round: 'prelims' (default) or 'finals'
     """
     db = get_db()
-    result = db.judges.insert_one({"name": name, "email": email, "prelim_room": None})
+    result = db.judges.insert_one({"name": name, "prelim_room": prelim_room})
     judge_id = result.inserted_id
     try:
         db.users.insert_one(
@@ -162,7 +168,6 @@ def get_judge_by_id(judge_id: Any):
 def update_judge_account(
     judge_id: Any,
     name: str,
-    email: str,
     username: str,
     password: Optional[str] = None,
     judge_round: Optional[str] = None,
@@ -171,7 +176,7 @@ def update_judge_account(
 ):
     db = get_db()
     judge_oid = _oid(judge_id)
-    judge_patch: Dict[str, Any] = {"name": name, "email": email}
+    judge_patch: Dict[str, Any] = {"name": name}
     if update_room:
         judge_patch["prelim_room"] = prelim_room
     db.judges.update_one({"_id": judge_oid}, {"$set": judge_patch})
@@ -233,7 +238,7 @@ def replace_scores_for_judge(judge_id, scores_dict):
         )
 
 
-def save_answers_for_judge(judge_id: Any, competitor_id: Any, answers_dict: Dict[Any, float]):
+def save_answers_for_judge(judge_id: Any, competitor_id: Any, answers_dict: Dict[Any, float], comments: str = ""):
     # Save per-question answers and aggregate into scores collection
     db = get_db()
     judge_oid = _oid(judge_id)
@@ -258,11 +263,12 @@ def save_answers_for_judge(judge_id: Any, competitor_id: Any, answers_dict: Dict
 
         avg_value = sum(answers_dict.values()) / len(answers_dict)
         db.scores.insert_one(
-            {"judge_id": judge_oid, "competitor_id": comp_oid, "value": avg_value}
+            {"judge_id": judge_oid, "competitor_id": comp_oid, "value": avg_value, "comments": comments}
         )
     else:
         # No answers, ensure scores entry is removed
         db.scores.delete_many({"judge_id": judge_oid, "competitor_id": comp_oid})
+    get_leaderboard.clear()
 
 
 def get_scores_for_judge(judge_id: Any):
@@ -272,6 +278,7 @@ def get_scores_for_judge(judge_id: Any):
     return {str(row["competitor_id"]): row["value"] for row in rows}
 
 
+@st.cache_data(ttl=30)
 def get_leaderboard():
     db = get_db()
     pipeline = [
@@ -328,8 +335,10 @@ def save_banner_image(file_bytes: bytes, filename: str, content_type: str):
         "updated_at": datetime.utcnow(),
     }
     db.assets.update_one({"key": "banner"}, {"$set": doc}, upsert=True)
+    get_banner_image.clear()
 
 
+@st.cache_data(ttl=300)
 def get_banner_image():
     """Return banner image as dict or None: {filename, content_type, data(bytes)}"""
     db = get_db()
@@ -348,6 +357,7 @@ def delete_banner_image():
     """Remove the banner image document from the assets collection."""
     db = get_db()
     db.assets.delete_many({"key": "banner"})
+    get_banner_image.clear()
 
 def set_background_color(color_hex: str):
     """Persist a background color setting (hex string)."""
@@ -358,7 +368,9 @@ def set_background_color(color_hex: str):
         "updated_at": datetime.utcnow(),
     }
     db.assets.update_one({"key": "background_color"}, {"$set": doc}, upsert=True)
+    get_background_color.clear()
 
+@st.cache_data(ttl=300)
 def get_background_color() -> Optional[str]:
     """Return stored background color hex string or None."""
     db = get_db()
@@ -371,6 +383,7 @@ def clear_background_color():
     """Remove background color setting."""
     db = get_db()
     db.assets.delete_many({"key": "background_color"})
+    get_background_color.clear()
 
 def set_intro_message(text: str):
     """Persist intro message shown to judges on the scoring page."""
@@ -381,7 +394,9 @@ def set_intro_message(text: str):
         "updated_at": datetime.utcnow(),
     }
     db.assets.update_one({"key": "intro_message"}, {"$set": doc}, upsert=True)
+    get_intro_message.clear()
 
+@st.cache_data(ttl=60)
 def get_intro_message() -> Optional[str]:
     db = get_db()
     row = db.assets.find_one({"key": "intro_message"})
@@ -392,6 +407,7 @@ def get_intro_message() -> Optional[str]:
 def clear_intro_message():
     db = get_db()
     db.assets.delete_many({"key": "intro_message"})
+    get_intro_message.clear()
 
 
 # --- Questions/answers ---
@@ -421,6 +437,7 @@ def _recompute_scores_from_answers(db):
     if docs:
         db.scores.insert_many(docs)
 
+@st.cache_data(ttl=600)
 def get_questions():
     db = get_db()
     rows = db.questions.find().sort("_id", ASCENDING)
@@ -429,10 +446,12 @@ def get_questions():
 def insert_question(prompt):
     db = get_db()
     db.questions.insert_one({"prompt": prompt})
+    get_questions.clear()
 
 def update_question(question_id, prompt):
     db = get_db()
     db.questions.update_one({"_id": _oid(question_id)}, {"$set": {"prompt": prompt}})
+    get_questions.clear()
 
 def delete_question(question_id):
     db = get_db()
@@ -440,6 +459,8 @@ def delete_question(question_id):
     db.answers.delete_many({"question_id": question_oid})
     db.questions.delete_one({"_id": question_oid})
     _recompute_scores_from_answers(db)
+    get_questions.clear()
+    get_leaderboard.clear()
 
 def get_answers_for_judge_competitor(judge_id, competitor_id):
     db = get_db()
@@ -466,9 +487,12 @@ def register_team(team_name: str, project_name: str, description: str, members: 
         "competitor_id": None,
     }
     result = db.team_registrations.insert_one(doc)
+    get_team_registrations.clear()
+    get_bookable_team_names.clear()
     return str(result.inserted_id)
 
 
+@st.cache_data(ttl=30)
 def get_team_registrations(status: Optional[str] = None):
     """Return all team registrations, optionally filtered by status."""
     db = get_db()
@@ -498,6 +522,10 @@ def approve_registration_as_competitor(reg_id: Any) -> str:
             "reviewed_at": datetime.utcnow(),
         }},
     )
+    get_team_registrations.clear()
+    get_approved_team_names.clear()
+    get_bookable_team_names.clear()
+    get_leaderboard.clear()
     return str(competitor_id)
 
 
@@ -508,6 +536,8 @@ def reject_registration(reg_id: Any, admin_notes: str = ""):
         {"_id": _oid(reg_id)},
         {"$set": {"status": "rejected", "admin_notes": admin_notes, "reviewed_at": datetime.utcnow()}},
     )
+    get_team_registrations.clear()
+    get_bookable_team_names.clear()
 
 
 def update_registration(reg_id: Any, team_name: str = None, contact_email: str = None,
@@ -522,6 +552,9 @@ def update_registration(reg_id: Any, team_name: str = None, contact_email: str =
     if members       is not None: patch["members"]      = members
     if patch:
         db.team_registrations.update_one({"_id": _oid(reg_id)}, {"$set": patch})
+        get_team_registrations.clear()
+        get_bookable_team_names.clear()
+        get_approved_team_names.clear()
 
 
 def team_name_exists(team_name: str) -> bool:
@@ -617,6 +650,7 @@ def log_booking_event(
     db.prelim_booking_history.insert_one(doc)
 
 
+@st.cache_data(ttl=30)
 def get_booking_history() -> list:
     """Return all prelim booking audit-log entries, newest first."""
     db = get_db()
@@ -624,6 +658,7 @@ def get_booking_history() -> list:
     return [_doc_with_id(r) for r in rows]
 
 
+@st.cache_data(ttl=30)
 def get_approved_team_names() -> list:
     """Return sorted list of team names from approved registrations."""
     db = get_db()
@@ -631,6 +666,7 @@ def get_approved_team_names() -> list:
     return [r["team_name"] for r in rows]
 
 
+@st.cache_data(ttl=30)
 def get_bookable_team_names() -> list:
     """Return sorted list of team names eligible to book (pending or approved, not rejected)."""
     db = get_db()
@@ -640,6 +676,7 @@ def get_bookable_team_names() -> list:
     return [r["team_name"] for r in rows]
 
 
+@st.cache_data(ttl=15)
 def get_all_bookings() -> list:
     """Return all prelim bookings sorted by slot then room."""
     db = get_db()
@@ -656,6 +693,7 @@ def get_booking_by_team_name(team_name: str) -> Optional[Dict[str, Any]]:
     return _doc_with_id(row) if row else None
 
 
+@st.cache_data(ttl=15)
 def get_booked_slot_map() -> Dict[str, str]:
     """Return dict keyed by 'slot_label||room' → team_name for all booked slots."""
     db = get_db()
@@ -682,6 +720,11 @@ def create_booking(team_name: str, slot_label: str, room: str) -> str:
     try:
         result = db.prelim_bookings.insert_one(doc)
         log_booking_event(team_name, slot_label, room, "booked")
+        get_booked_slot_map.clear()
+        get_all_bookings.clear()
+        get_prelim_slot_map.clear()
+        get_teams_booked_in_room.clear()
+        get_bookable_team_names.clear()
         return str(result.inserted_id)
     except DuplicateKeyError:
         raise ValueError(f"Slot '{slot_label}' in room {room} is already taken.")
@@ -705,6 +748,10 @@ def switch_booking(team_name: str, new_slot_label: str, new_room: str) -> str:
     try:
         result = db.prelim_bookings.insert_one(doc)
         log_booking_event(team_name, new_slot_label, new_room, "switched", old_slot, old_room)
+        get_booked_slot_map.clear()
+        get_all_bookings.clear()
+        get_prelim_slot_map.clear()
+        get_teams_booked_in_room.clear()
         return str(result.inserted_id)
     except DuplicateKeyError:
         raise ValueError(f"Slot '{new_slot_label}' in room {new_room} is already taken.")
@@ -732,6 +779,11 @@ def admin_update_booking(booking_id: Any, slot_label: str, room: str):
             current["team_name"], slot_label, room, "admin_updated",
             current.get("slot_label"), current.get("room"),
         )
+    get_booked_slot_map.clear()
+    get_all_bookings.clear()
+    get_prelim_slot_map.clear()
+    get_teams_booked_in_room.clear()
+    get_booking_history.clear()
 
 
 def admin_delete_booking(booking_id: Any):
@@ -744,6 +796,11 @@ def admin_delete_booking(booking_id: Any):
             current["team_name"], current.get("slot_label", ""), current.get("room", ""),
             "admin_deleted",
         )
+    get_booked_slot_map.clear()
+    get_all_bookings.clear()
+    get_prelim_slot_map.clear()
+    get_teams_booked_in_room.clear()
+    get_booking_history.clear()
 
 
 # ── Mentor & Robot Scheduling constants ─────────────────────────────────────────
@@ -840,6 +897,7 @@ def get_robot_bookings_for_team(team_name: str) -> list:
     return [_doc_with_id(r) for r in rows]
 
 
+@st.cache_data(ttl=15)
 def get_all_mentor_bookings() -> list:
     """Return all mentor bookings sorted by slot then mentor."""
     db = get_db()
@@ -849,6 +907,7 @@ def get_all_mentor_bookings() -> list:
     return [_doc_with_id(r) for r in rows]
 
 
+@st.cache_data(ttl=15)
 def get_all_robot_bookings() -> list:
     """Return all robot bookings sorted by slot then room."""
     db = get_db()
@@ -858,6 +917,7 @@ def get_all_robot_bookings() -> list:
     return [_doc_with_id(r) for r in rows]
 
 
+@st.cache_data(ttl=15)
 def get_mentor_booked_map() -> Dict[str, str]:
     """Return dict keyed by 'slot_label||mentor_name' → team_name."""
     db = get_db()
@@ -868,6 +928,7 @@ def get_mentor_booked_map() -> Dict[str, str]:
     return result
 
 
+@st.cache_data(ttl=15)
 def get_robot_booked_map() -> Dict[str, str]:
     """Return dict keyed by 'slot_label||room' → team_name."""
     db = get_db()
@@ -894,6 +955,8 @@ def create_mentor_booking(team_name: str, mentor_name: str, slot_label: str) -> 
     }
     try:
         result = db.mentor_bookings.insert_one(doc)
+        get_mentor_booked_map.clear()
+        get_all_mentor_bookings.clear()
         return str(result.inserted_id)
     except DuplicateKeyError:
         raise ValueError(
@@ -938,6 +1001,8 @@ def create_mentor_booking_room(team_name: str, room: str, slot_label: str) -> st
     }
     try:
         result = db.mentor_bookings.insert_one(doc)
+        get_mentor_booked_map.clear()
+        get_all_mentor_bookings.clear()
         return str(result.inserted_id)
     except DuplicateKeyError:
         raise ValueError("That slot was just taken. Please refresh and try a different time.")
@@ -959,6 +1024,8 @@ def create_robot_booking(team_name: str, room: str, slot_label: str) -> str:
     }
     try:
         result = db.robot_bookings.insert_one(doc)
+        get_robot_booked_map.clear()
+        get_all_robot_bookings.clear()
         return str(result.inserted_id)
     except DuplicateKeyError:
         raise ValueError(
@@ -970,12 +1037,16 @@ def cancel_mentor_booking(booking_id: Any):
     """Cancel (delete) a mentor booking by ID."""
     db = get_db()
     db.mentor_bookings.delete_one({"_id": _oid(booking_id)})
+    get_mentor_booked_map.clear()
+    get_all_mentor_bookings.clear()
 
 
 def cancel_robot_booking(booking_id: Any):
     """Cancel (delete) a robot booking by ID."""
     db = get_db()
     db.robot_bookings.delete_one({"_id": _oid(booking_id)})
+    get_robot_booked_map.clear()
+    get_all_robot_bookings.clear()
 
 
 def admin_update_mentor_booking(booking_id: Any, mentor_name: str, slot_label: str):
@@ -994,6 +1065,8 @@ def admin_update_mentor_booking(booking_id: Any, mentor_name: str, slot_label: s
         {"_id": _oid(booking_id)},
         {"$set": {"mentor_name": mentor_name, "slot_label": slot_label}},
     )
+    get_mentor_booked_map.clear()
+    get_all_mentor_bookings.clear()
 
 
 def admin_update_robot_booking(booking_id: Any, room: str, slot_label: str):
@@ -1012,18 +1085,24 @@ def admin_update_robot_booking(booking_id: Any, room: str, slot_label: str):
         {"_id": _oid(booking_id)},
         {"$set": {"room": room, "slot_label": slot_label}},
     )
+    get_robot_booked_map.clear()
+    get_all_robot_bookings.clear()
 
 
 def admin_delete_mentor_booking(booking_id: Any):
     """Admin: remove a mentor booking entirely."""
     db = get_db()
     db.mentor_bookings.delete_one({"_id": _oid(booking_id)})
+    get_mentor_booked_map.clear()
+    get_all_mentor_bookings.clear()
 
 
 def admin_delete_robot_booking(booking_id: Any):
     """Admin: remove a robot booking entirely."""
     db = get_db()
     db.robot_bookings.delete_one({"_id": _oid(booking_id)})
+    get_robot_booked_map.clear()
+    get_all_robot_bookings.clear()
 
 
 # --- Competitor auto-create ---
@@ -1112,11 +1191,12 @@ def get_finals_scoring_matrix():
 
 # --- Judge Round / Room helpers ---
 
+@st.cache_data(ttl=30)
 def get_teams_booked_in_room(room: str) -> list:
-    """Return list of {team_name, members, project_name} for every team
+    """Return list of {team_name, slot_label, members, project_name} for every team
     that has a prelim booking in the given room."""
     db = get_db()
-    bookings = list(db.prelim_bookings.find({"room": room}).sort("team_name", ASCENDING))
+    bookings = list(db.prelim_bookings.find({"room": room}).sort("slot_label", ASCENDING))
     result = []
     for b in bookings:
         tn = b["team_name"]
@@ -1125,9 +1205,20 @@ def get_teams_booked_in_room(room: str) -> list:
         )
         result.append({
             "team_name": tn,
+            "slot_label": b.get("slot_label", ""),
             "members": reg.get("members", []) if reg else [],
             "project_name": reg.get("project_name", "") if reg else "",
         })
+    return result
+
+
+@st.cache_data(ttl=15)
+def get_prelim_slot_map() -> Dict[str, str]:
+    """Return {team_name: slot_label} for all prelim bookings."""
+    db = get_db()
+    result: Dict[str, str] = {}
+    for row in db.prelim_bookings.find():
+        result[row["team_name"]] = row.get("slot_label", "")
     return result
 
 
@@ -1137,6 +1228,62 @@ def get_prelim_top5() -> list:
     leaderboard = get_leaderboard()
     scored = [c for c in leaderboard if c.get("num_scores", 0) > 0]
     return scored[:5]
+
+
+def get_prelim_top6() -> list:
+    """Return up to 6 competitors with the highest average prelim score
+    (only competitors that have received at least one score)."""
+    leaderboard = get_leaderboard()
+    scored = [c for c in leaderboard if c.get("num_scores", 0) > 0]
+    return scored[:6]
+
+
+def get_prelim_comments_for_judge_competitor(judge_id: Any, competitor_id: Any) -> str:
+    """Return the comments stored by a specific judge for a specific competitor (prelims)."""
+    db = get_db()
+    row = db.scores.find_one({"judge_id": _oid(judge_id), "competitor_id": _oid(competitor_id)})
+    return row.get("comments", "") if row else ""
+
+
+def get_all_prelim_comments_for_competitor(competitor_id: Any) -> list:
+    """Return list of {judge_name, comments} for all prelim judges who left notes for this competitor."""
+    db = get_db()
+    rows = list(db.scores.find({
+        "competitor_id": _oid(competitor_id),
+        "comments": {"$exists": True, "$nin": ["", None]},
+    }))
+    result = []
+    for row in rows:
+        judge = db.judges.find_one({"_id": row["judge_id"]})
+        result.append({
+            "judge_name": judge.get("name", "Judge") if judge else "Judge",
+            "comments": row.get("comments", ""),
+        })
+    return result
+
+
+def get_finals_comments_for_judge_competitor(judge_id: Any, competitor_id: Any) -> str:
+    """Return the comments stored by a specific judge for a specific competitor (finals)."""
+    db = get_db()
+    row = db.finals_scores.find_one({"judge_id": _oid(judge_id), "competitor_id": _oid(competitor_id)})
+    return row.get("comments", "") if row else ""
+
+
+def get_all_finals_comments_for_competitor(competitor_id: Any) -> list:
+    """Return list of {judge_name, comments} for all finals judges who left notes for this competitor."""
+    db = get_db()
+    rows = list(db.finals_scores.find({
+        "competitor_id": _oid(competitor_id),
+        "comments": {"$exists": True, "$nin": ["", None]},
+    }))
+    result = []
+    for row in rows:
+        judge = db.judges.find_one({"_id": row["judge_id"]})
+        result.append({
+            "judge_name": judge.get("name", "Judge") if judge else "Judge",
+            "comments": row.get("comments", ""),
+        })
+    return result
 
 
 def get_scores_for_judge_all(judge_id: Any) -> Dict[str, float]:
@@ -1174,7 +1321,7 @@ def get_answers_for_judge_competitor_finals(judge_id: Any, competitor_id: Any) -
 
 
 def save_answers_for_judge_finals(
-    judge_id: Any, competitor_id: Any, answers_dict: Dict[Any, float]
+    judge_id: Any, competitor_id: Any, answers_dict: Dict[Any, float], comments: str = ""
 ):
     """Save per-question answers and the aggregated score into the finals collections."""
     db = get_db()
@@ -1196,8 +1343,9 @@ def save_answers_for_judge_finals(
             db.finals_answers.insert_many(payload)
         avg_value = sum(answers_dict.values()) / len(answers_dict)
         db.finals_scores.insert_one(
-            {"judge_id": judge_oid, "competitor_id": comp_oid, "value": avg_value}
+            {"judge_id": judge_oid, "competitor_id": comp_oid, "value": avg_value, "comments": comments}
         )
+    get_leaderboard.clear()
 
 
 def get_finals_scores_for_judge(judge_id: Any) -> Dict[str, float]:
@@ -1271,3 +1419,42 @@ def authenticate_user(username, password):
         result = _doc_with_id(row)
         return result
     return None
+
+
+# --- Server-side session store ---
+
+def create_session(user: dict, ttl_hours: int = 12) -> str:
+    """Create a server-side session for the given user. Returns a URL-safe token."""
+    db = get_db()
+    token = secrets.token_urlsafe(32)
+    db.sessions.insert_one({
+        "token": token,
+        "user":  user,
+        "expires_at": datetime.utcnow() + timedelta(hours=ttl_hours),
+    })
+    # Ensure MongoDB auto-expires old sessions via TTL index
+    try:
+        db.sessions.create_index("expires_at", expireAfterSeconds=0)
+    except Exception:
+        pass
+    return token
+
+
+def get_session(token: str) -> Optional[dict]:
+    """Return the stored user dict for a valid, unexpired token, or None."""
+    if not token:
+        return None
+    db = get_db()
+    row = db.sessions.find_one({
+        "token": token,
+        "expires_at": {"$gt": datetime.utcnow()},
+    })
+    return row.get("user") if row else None
+
+
+def delete_session(token: str) -> None:
+    """Delete a session by token (logout)."""
+    if not token:
+        return
+    db = get_db()
+    db.sessions.delete_one({"token": token})

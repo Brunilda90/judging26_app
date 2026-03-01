@@ -23,6 +23,9 @@ from db import (
     SCHED_FRIDAY_SLOTS,
     SCHED_SATURDAY_SLOTS,
     get_all_mentor_bookings,
+    create_session,
+    get_session,
+    delete_session,
 )
 
 # ── Mentor portal credentials ──────────────────────────────────────────────────
@@ -30,7 +33,8 @@ _MENTOR_USERNAME = "AutoHackMentor"
 # Store password as SHA-256 so the plain string isn't sitting in code at runtime
 _MENTOR_PASSWORD_HASH = hashlib.sha256("AH2026!Mentor".encode()).hexdigest()
 
-_SESSION_KEY = "mentor_authenticated"  # st.session_state flag
+_SESSION_KEY   = "mentor_authenticated"  # st.session_state flag
+_SESSION_PARAM = "ms"                   # URL query-param key for mentor session token
 
 # ── Asset paths ────────────────────────────────────────────────────────────────
 _LOGO_AH_SVG   = os.path.join("assets", "autohack_logo.svg")
@@ -118,6 +122,20 @@ _CSS = f"""
     background: transparent !important;
     color: #FFFFFF !important;
     -webkit-text-fill-color: #FFFFFF !important;
+}}
+/* Password eye icon */
+[data-baseweb="base-input"] button,
+[data-baseweb="input"] button,
+[data-testid="stTextInput"] button {{
+    opacity: 1 !important;
+    background: transparent !important;
+    border: none !important;
+}}
+[data-baseweb="base-input"] button svg,
+[data-baseweb="input"] button svg,
+[data-testid="stTextInput"] button svg {{
+    filter: brightness(0) invert(1) !important;
+    opacity: 1 !important;
 }}
 label {{ color: rgba(200,215,245,0.80) !important; font-size: 0.86rem !important; }}
 
@@ -326,13 +344,13 @@ def _render_login():
     # Centred login card
     _, col, _ = st.columns([1, 2, 1])
     with col:
-        st.markdown(
-            '<div class="login-card">'
-            '  <p class="login-title">🔐 Mentor Portal</p>'
-            '  <p class="login-sub">Sign in to view the session schedule</p>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+        # st.markdown(
+        #     '<div class="login-card">'
+        #     '  <p class="login-title">🔐 Mentor Portal</p>'
+        #     '  <p class="login-sub">Sign in to view the session schedule</p>'
+        #     '</div>',
+        #     unsafe_allow_html=True,
+        # )
 
         username = st.text_input("Username", key="mentor_login_user")
         password = st.text_input("Password", type="password", key="mentor_login_pw")
@@ -341,6 +359,8 @@ def _render_login():
                      key="mentor_login_btn"):
             if _check_password(username, password):
                 st.session_state[_SESSION_KEY] = True
+                token = create_session({"role": "mentor", "username": _MENTOR_USERNAME})
+                st.query_params[_SESSION_PARAM] = token
                 st.rerun()
             else:
                 st.error("Incorrect username or password.")
@@ -426,6 +446,17 @@ def _render_day_grid(slots: list, schedule_map: dict, rooms: list, mpr: dict):
 # ── Main entry point ───────────────────────────────────────────────────────────
 
 def show():
+    # ── Restore session from URL token on page refresh ─────────────────────────
+    if not st.session_state.get(_SESSION_KEY):
+        token = st.query_params.get(_SESSION_PARAM)
+        if token:
+            data = get_session(token)
+            if data and data.get("role") == "mentor":
+                st.session_state[_SESSION_KEY] = True
+            else:
+                # Token expired or invalid — clean up URL
+                del st.query_params[_SESSION_PARAM]
+
     # ── Auth gate ──────────────────────────────────────────────────────────────
     if not st.session_state.get(_SESSION_KEY):
         _render_login()
@@ -450,6 +481,10 @@ def show():
     with col_btn:
         if st.button("↩ Sign Out", type="primary", use_container_width=True,
                      key="mentor_signout"):
+            token = st.query_params.get(_SESSION_PARAM)
+            if token:
+                delete_session(token)
+                del st.query_params[_SESSION_PARAM]
             st.session_state.pop(_SESSION_KEY, None)
             st.rerun()
 
@@ -476,11 +511,11 @@ def show():
     total_booked = len(bookings)
 
     # ── Metrics ────────────────────────────────────────────────────────────────
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns(3)
     c1.metric("Total Booked",       total_booked)
     c2.metric("Friday Sessions",    fri_booked)
     c3.metric("Saturday Sessions",  sat_booked)
-    c4.metric("Remaining Capacity", total_possible - total_booked)
+    # c4.metric("Remaining Capacity", total_possible - total_booked)
 
     # ── Legend ─────────────────────────────────────────────────────────────────
     st.markdown(
@@ -526,4 +561,9 @@ def show():
         "[Shubhneet.Sandhu@GeorgianCollege.ca](mailto:Shubhneet.Sandhu@GeorgianCollege.ca) "
         "or "
         "[Brunilda.Xhaferllari@GeorgianCollege.ca](mailto:Brunilda.Xhaferllari@GeorgianCollege.ca)."
+    )
+    st.markdown(
+        '<p style="text-align:center;color:rgba(180,190,215,0.30);'
+        'font-size:0.72rem;margin-top:8px;">Powered by Research and Innovation, Georgian College</p>',
+        unsafe_allow_html=True,
     )

@@ -382,10 +382,13 @@ def show():
     _render_header()
 
     st.markdown(
-        "Welcome to the **AutoHack 2026 Prelims Booking Portal**. "
-        "Enter your registration email to look up your team, then pick a "
-        "10-minute judging slot between **2:00 PM and 3:30 PM**. "
-        "**Only one team member needs to complete this booking on behalf of the group.**"
+        f'<p style="margin-top: 8px;">'
+        'Welcome to the <strong>AutoHack 2026 Prelims Booking Portal</strong>. '
+        'Enter your registration email to look up your team, then pick a '
+        '10-minute judging slot between <strong>2:00 PM and 3:30 PM</strong>. '
+        '<strong>Only one team member needs to complete this booking on behalf of the group.</strong>'
+        '</p>',
+        unsafe_allow_html=True,
     )
     st.divider()
 
@@ -553,9 +556,17 @@ def show():
         _render_grid(booked_map, selected_team)
 
     st.divider()
-    st.caption(
-        "Having trouble? Contact us at "
-        "[Shubhneet.Sandhu@GeorgianCollege.ca](mailto:Shubhneet.Sandhu@GeorgianCollege.ca) "
-        "or "
-        "[Brunilda.Xhaferllari@GeorgianCollege.ca](mailto:Brunilda.Xhaferllari@GeorgianCollege.ca)."
+    st.markdown(
+        '<p style="font-size: 14px;">'
+        'Having trouble? Contact us at '
+        '<a href="mailto:Shubhneet.Sandhu@GeorgianCollege.ca" style="color: rgb(107, 159, 228);">Shubhneet.Sandhu@GeorgianCollege.ca</a> '
+        'or '
+        '<a href="mailto:Brunilda.Xhaferllari@GeorgianCollege.ca" style="color: rgb(107, 159, 228);">Brunilda.Xhaferllari@GeorgianCollege.ca</a>.'
+        '</p>',
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        '<p style="text-align:center;color:rgba(180,190,215,0.30);'
+        'font-size:0.72rem;margin-top:8px;">Powered by Research and Innovation, Georgian College</p>',
+        unsafe_allow_html=True,
     )
