@@ -18,11 +18,14 @@ from db import (
     get_judge_by_id,
     get_questions,
     get_intro_message,
-    get_prelim_top5,
+    get_prelim_top6,
+    get_prelim_slot_map,
     get_team_registrations,
     get_answers_for_judge_competitor_finals,
     save_answers_for_judge_finals,
     get_finals_scores_for_judge,
+    get_finals_comments_for_judge_competitor,
+    get_all_prelim_comments_for_competitor,
 )
 
 # ── Asset paths ────────────────────────────────────────────────────────────────
@@ -35,7 +38,7 @@ _BG_URL = (
     "?auto=format&fit=crop&w=1920&q=80"
 )
 
-_MEDALS = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
+_MEDALS = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣"]
 
 _CONTACT_SHUBHNEET = "Shubhneet.Sandhu@GeorgianCollege.ca"
 _CONTACT_BRUNILDA  = "Brunilda.Xhaferllari@GeorgianCollege.ca"
@@ -43,6 +46,7 @@ _CONTACT_BRUNILDA  = "Brunilda.Xhaferllari@GeorgianCollege.ca"
 
 # ── Asset helpers ──────────────────────────────────────────────────────────────
 
+@st.cache_data
 def _b64_tag(path: str, style: str, alt: str = "") -> str:
     """Return an <img> tag with the image embedded as a base64 data URI."""
     if not os.path.exists(path):
@@ -73,18 +77,38 @@ section[data-testid="stSidebar"] {{ display: none !important; }}
     min-height: 100vh;
 }}
 
+/* ── Outer app container top padding ── */
+[data-testid="stAppViewBlockContainer"] {{
+    padding: 1rem 1rem 10rem !important;
+}}
+
 /* ── Main panel: dark glassmorphism ── */
 .main .block-container {{
     background: rgba(10, 12, 22, 0.68) !important;
     backdrop-filter: blur(18px) !important;
     -webkit-backdrop-filter: blur(18px) !important;
-    border-radius: 20px !important;
+    border-radius: 0 0 20px 20px !important;
     border: 1px solid rgba(255,255,255,0.08) !important;
-    padding: 2.5rem 3rem !important;
+    padding: 0 3rem 2rem !important;
     max-width: 980px !important;
-    margin-top: 1.5rem !important;
+    margin-top: 0.3rem !important;
     margin-bottom: 2rem !important;
     box-shadow: 0 8px 60px rgba(0,0,0,0.60) !important;
+}}
+/* Pull navbar flush to the top of the panel */
+.main .block-container > div:first-child {{
+    margin-top: -3.5rem !important;
+}}
+
+/* ── Navbar sub-row: vertically centre "Signed in as" with logout button ── */
+[data-testid="stHorizontalBlock"]:first-of-type [data-testid="stHorizontalBlock"] {{
+    align-items: center !important;
+}}
+[data-testid="stHorizontalBlock"]:first-of-type [data-testid="stHorizontalBlock"]
+    [data-testid="stMarkdownContainer"] {{
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
 }}
 
 /* ── Brand section labels ── */
@@ -117,6 +141,30 @@ section[data-testid="stSidebar"] {{ display: none !important; }}
     font-size: 0.82rem !important; text-transform: uppercase; letter-spacing: 0.8px;
 }}
 
+/* ── Top navbar user text ── */
+.ah-nav-user {{
+    font-size: 13px; color: rgba(160,180,220,0.70);
+    margin: 0; line-height: 1.45; text-align: right;
+}}
+.ah-nav-user strong {{ color: rgba(220,232,255,0.92); font-size: 0.90rem; }}
+
+/* ── Navbar row: vertically center logos and right-side content ── */
+[data-testid="stHorizontalBlock"]:first-of-type {{
+    align-items: center !important;
+}}
+/* ── Logout button ── */
+[data-testid="stHorizontalBlock"]:first-of-type [data-testid="stBaseButton-primary"] {{
+    font-size: 0.55em !important;
+    padding: 0.2rem 0.65rem !important;
+    text-transform: none !important;
+    white-space: nowrap !important;
+}}
+
+/* ── Pull subtitle heading up closer to navbar ── */
+[data-testid="stHorizontalBlock"]:first-of-type + div {{
+    margin-top: -2rem !important;
+}}
+
 /* ── Round badge ── */
 .round-pill {{
     display: inline-block;
@@ -143,6 +191,10 @@ label, .stRadio label {{ color: rgba(200,215,245,0.80) !important; }}
     background: transparent !important;
     color: #FFFFFF !important;
     -webkit-text-fill-color: #FFFFFF !important;
+}}
+[data-baseweb="textarea"] textarea::placeholder {{
+    color: rgba(160,175,200,0.50) !important;
+    -webkit-text-fill-color: rgba(160,175,200,0.50) !important;
 }}
 
 /* ── Divider ── */
@@ -237,7 +289,7 @@ div[data-testid="stRadio"] [role="radiogroup"] {{
     gap: 7px !important; margin: 0 !important;
 }}
 div[data-testid="stRadio"] [role="radiogroup"] > label {{
-    border: 2px solid rgba(204,0,0,0.28) !important;
+    border: 2px solid rgba(204,0,0,0.40) !important;
     border-radius: 9px !important;
     min-width: 48px !important; height: 48px !important;
     padding: 0 8px !important;
@@ -246,7 +298,7 @@ div[data-testid="stRadio"] [role="radiogroup"] > label {{
     background: rgba(35,12,12,0.85) !important;
     cursor: pointer !important;
     transition: all 0.13s cubic-bezier(0.4,0,0.2,1) !important;
-    color: rgba(220,200,200,0.75) !important; user-select: none !important;
+    color: rgba(190,205,225,0.65) !important; user-select: none !important;
 }}
 div[data-testid="stRadio"] [role="radiogroup"] > label:hover {{
     border-color: #CC0000 !important;
@@ -256,11 +308,17 @@ div[data-testid="stRadio"] [role="radiogroup"] > label:hover {{
     box-shadow: 0 4px 12px rgba(204,0,0,0.28) !important;
 }}
 div[data-testid="stRadio"] [role="radiogroup"] > label > div:first-child {{ display: none !important; }}
+div[data-testid="stRadio"] [role="radiogroup"] > label p {{
+    color: rgba(190,205,225,0.65) !important;
+}}
 div[data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) {{
     background: linear-gradient(135deg, #CC0000, #A80000) !important;
     border-color: #CC0000 !important; color: #FFFFFF !important;
     box-shadow: 0 4px 16px rgba(204,0,0,0.50) !important;
     transform: translateY(-2px) !important;
+}}
+div[data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) p {{
+    color: #FFFFFF !important;
 }}
 
 /* ── Score result cap ── */
@@ -313,60 +371,9 @@ div[data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) {{
 
 # ── Render helpers ─────────────────────────────────────────────────────────────
 
-def _render_header(subtitle_text: str):
-    """
-    Apply CSS then render the dark pill banner (same pattern as booking_page.py):
-      • Centered AH white logo at max-width:560px
-      • GC logo pinned bottom-right at height:44px (no filter — original colours)
-      • Subtitle text + red/blue stripe centred below
-    """
+def _render_css():
+    """Inject page CSS (navbar + content styles)."""
     st.markdown(_CSS, unsafe_allow_html=True)
-
-    ah_tag = (
-        _b64_tag(_LOGO_AH_WHITE,
-                 "width:100%;max-width:560px;height:auto;object-fit:contain;",
-                 "AutoHack 2026")
-        or _b64_tag(_LOGO_AH_SVG,
-                    "width:100%;max-width:560px;height:auto;object-fit:contain;",
-                    "AutoHack 2026")
-        or _b64_tag(_LOGO_AH_PNG,
-                    "width:100%;max-width:560px;height:auto;object-fit:contain;",
-                    "AutoHack 2026")
-    )
-    gc_tag = _b64_tag(
-        _LOGO_GC_PNG,
-        "height:44px;object-fit:contain;opacity:0.80;",
-        "Georgian College",
-    )
-
-    banner = (
-        '<div style="'
-        '  position:relative;'
-        '  background:rgba(8,10,20,0.82);'
-        '  border-radius:16px;'
-        '  padding:28px 24px 20px;'
-        '  margin-bottom:4px;'
-        '  text-align:center;'
-        '  border:1px solid rgba(255,255,255,0.07);'
-        '">'
-        f'  {ah_tag}'
-        + (
-            '<div style="position:absolute;bottom:14px;right:18px;">'
-            f'{gc_tag}'
-            '</div>'
-            if gc_tag else ""
-        )
-        + '</div>'
-    )
-
-    subtitle = (
-        '<div style="text-align:center;padding-top:12px;">'
-        f'  <p class="ah-subtitle">{subtitle_text}</p>'
-        '  <div class="ah-stripe"></div>'
-        '</div>'
-    )
-
-    st.markdown(banner + subtitle, unsafe_allow_html=True)
 
 
 def _render_top5_table(top5: list):
@@ -398,8 +405,13 @@ def _render_team_card(team_name: str, registrations: list):
     member_lines = "".join(
         f'<p style="margin:3px 0;color:rgba(215,228,255,0.85);font-size:0.88rem;">'
         f'• <strong style="color:#FFFFFF;">{m.get("name","—")}</strong>'
-        f'&nbsp;&nbsp;<span style="color:rgba(150,170,210,0.70);font-size:0.82rem;">{m.get("email","")}</span>'
-        f'</p>'
+        + (
+            f'&nbsp;&nbsp;<span style="color:rgba(150,170,210,0.70);font-size:0.82rem;">'
+            f'{m.get("institution","")}{"  ·  " + m.get("program","") if m.get("program") else ""}'
+            f'</span>'
+            if m.get("institution") or m.get("program") else ""
+        )
+        + f'</p>'
         for m in members
     )
 
@@ -430,7 +442,11 @@ def _score_label(v: int) -> str:
 
 
 def _render_scoring_form(judge_id, comp_id: str, comp_name: str, questions, view_only: bool):
-    """Question cards with score chip radios (0–10)."""
+    """Question cards with score chip radios (0–10).
+    Wrapped in st.form when editable so the page only reruns on Save Scores,
+    not on every chip click."""
+    import contextlib
+
     existing = (
         get_answers_for_judge_competitor_finals(judge_id, comp_id)
         if judge_id else {}
@@ -438,6 +454,7 @@ def _render_scoring_form(judge_id, comp_id: str, comp_name: str, questions, view
     scored      = any(int(v) > 0 for v in existing.values()) if existing else False
     editing_key = f"finals_editing_{judge_id}_{comp_id}"
     editing     = st.session_state.get(editing_key, False) if not view_only else False
+    existing_comments = get_finals_comments_for_judge_competitor(judge_id, comp_id) if judge_id else ""
 
     if not view_only:
         if scored and not editing:
@@ -463,46 +480,70 @@ def _render_scoring_form(judge_id, comp_id: str, comp_name: str, questions, view
         unsafe_allow_html=True,
     )
 
-    answers = {}
-    for i, q in enumerate(questions, 1):
-        stored_raw    = int(existing.get(q["id"], 0))
-        stored_choice = int(stored_raw / 10) if stored_raw else 0
+    disabled = view_only or (scored and not editing)
 
-        # Question card header
-        st.markdown(
-            f'<div class="q-header">'
-            f'  <span class="q-num">Q{i}</span>'
-            f'  <span class="q-text">{q["prompt"]}</span>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+    # Use st.form when editable to batch all chip interactions into a single rerun
+    # on Save; fall back to a no-op context when the form is read-only.
+    form_ctx = (
+        st.form(key=f"finals_form_{judge_id}_{comp_id}")
+        if not disabled
+        else contextlib.nullcontext()
+    )
 
-        # Score chips (0–10 horizontal radio)
-        choice = st.radio(
-            q["prompt"],
-            options=list(range(0, 11)),
-            index=stored_choice,
-            horizontal=True,
-            format_func=lambda x: "—" if x == 0 else str(x),
-            key=f"finals_q_{judge_id}_{comp_id}_{q['id']}",
-            label_visibility="collapsed",
-            disabled=view_only or (scored and not editing),
-        )
-        answers[q["id"]] = choice
+    with form_ctx:
+        answers = {}
+        for i, q in enumerate(questions, 1):
+            stored_raw    = int(existing.get(q["id"], 0))
+            stored_choice = int(stored_raw / 10) if stored_raw else 0
 
-        # Score result label
-        st.markdown(
-            f'<div class="score-result">→ &nbsp;{_score_label(choice)}</div>',
-            unsafe_allow_html=True,
-        )
+            # Question card header
+            st.markdown(
+                f'<div class="q-header">'
+                f'  <span class="q-num">Q{i}</span>'
+                f'  <span class="q-text">{q["prompt"]}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
-    if not view_only and not (scored and not editing):
+            # Score chips (0–10 horizontal radio)
+            choice = st.radio(
+                q["prompt"],
+                options=list(range(0, 11)),
+                index=stored_choice,
+                horizontal=True,
+                format_func=lambda x: str(x),
+                key=f"finals_q_{judge_id}_{comp_id}_{q['id']}",
+                label_visibility="collapsed",
+                disabled=disabled,
+            )
+            answers[q["id"]] = choice
+
+            # Score result label
+            st.markdown(
+                f'<div class="score-result">→ &nbsp;{_score_label(choice)}</div>',
+                unsafe_allow_html=True,
+            )
+
+        # ── Additional comments ────────────────────────────────────────────────────
         st.markdown("<br>", unsafe_allow_html=True)
-        col_save, _ = st.columns([3, 5])
-        with col_save:
-            if st.button("🏆 &nbsp;Save Finals Scores", key=f"finals_save_{comp_id}",
-                         type="primary", use_container_width=True):
-                missing = [q for q in questions if answers.get(q["id"], 0) == 0]
+        comments = st.text_area(
+            "Additional Comments / Notes (optional)",
+            value=existing_comments,
+            placeholder="Enter any feedback, observations, or notes for this finalist team…",
+            key=f"finals_comments_{judge_id}_{comp_id}",
+            disabled=disabled,
+            height=100,
+        )
+
+        if not disabled:
+            st.markdown("<br>", unsafe_allow_html=True)
+            col_save, _ = st.columns([3, 5])
+            with col_save:
+                submitted = st.form_submit_button(
+                    "Save Scores", type="primary", use_container_width=True
+                )
+            if submitted:
+                missing = [q for q in questions if q["id"] not in answers]
                 if missing:
                     st.error(
                         f"Please score all {len(missing)} remaining "
@@ -510,7 +551,7 @@ def _render_scoring_form(judge_id, comp_id: str, comp_name: str, questions, view
                     )
                 else:
                     cleaned = {qid: val * 10 for qid, val in answers.items()}
-                    save_answers_for_judge_finals(judge_id, comp_id, cleaned)
+                    save_answers_for_judge_finals(judge_id, comp_id, cleaned, comments=comments)
                     st.session_state[editing_key] = False
                     st.session_state["finals_score_saved"] = True
                     st.rerun()
@@ -530,48 +571,77 @@ def show():
         st.error("⛔ This page is for Finals judges only.")
         st.stop()
 
-    # ── Banner (same pattern as booking_page.py) ───────────────────────────────
-    _render_header("Finals Scoring")
+    # ── Load judge details (needed in navbar) ─────────────────────────────────
+    username   = user.get("username", "Judge")
+    _judge_id  = user.get("judge_id")
+    _judge     = get_judge_by_id(_judge_id) if _judge_id else None
+    judge_name = _judge.get("name", username) if _judge else username
 
-    # ── Sub-bar: round pill (left) · signed in + log-out (right) ──────────────
-    username = user.get("username", "judge")
+    # ── CSS ────────────────────────────────────────────────────────────────────
+    _render_css()
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    col_left, col_right = st.columns([6, 2])
+    # ── Top navbar: logos (left)  ·  signed in + logout (right) ──────────────
+    ah_tag = (
+        _b64_tag(_LOGO_AH_WHITE, "height:42px;object-fit:contain;", "AutoHack 2026")
+        or _b64_tag(_LOGO_AH_SVG, "height:42px;object-fit:contain;", "AutoHack 2026")
+        or _b64_tag(_LOGO_AH_PNG, "height:42px;object-fit:contain;", "AutoHack 2026")
+    )
+    gc_tag = _b64_tag(
+        _LOGO_GC_PNG, "height:28px;object-fit:contain;opacity:0.82;", "Georgian College"
+    )
 
-    with col_left:
+    nav_logo, nav_right = st.columns([5, 4])
+    with nav_logo:
         st.markdown(
-            '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;">'
-            '<span class="round-pill">🏆 Finals Round</span>'
-            f'<span style="font-size:0.83rem;color:rgba(160,180,220,0.65);">'
-            f'Signed in as <strong style="color:rgba(215,228,255,0.90);">{username}</strong></span>'
-            '</div>',
+            f'<div style="display:flex;align-items:center;gap:16px;padding:8px 0 6px;">'
+            f'  {ah_tag}'
+            f'  <span style="color:rgba(255,255,255,0.20);font-size:2rem;'
+            f'font-weight:100;line-height:1;padding:0 2px;">|</span>'
+            f'  {gc_tag}'
+            f'</div>',
             unsafe_allow_html=True,
         )
+    with nav_right:
+        sub_user, sub_btn = st.columns([3, 1])
+        with sub_user:
+            st.markdown(
+                f'<p class="ah-nav-user" style="text-align:right;">'
+                f'Signed in as&nbsp;<strong>{username}</strong></p>',
+                unsafe_allow_html=True,
+            )
+        with sub_btn:
+            if st.button("Log Out", key="finals_signout", type="primary"):
+                st.session_state["_do_logout"] = True
+                st.rerun()
 
-    with col_right:
-        if st.button("↩ Log Out", key="finals_signout", type="primary", use_container_width=True):
-            st.session_state.pop("user", None)
-            st.rerun()
+    # ── Subtitle + stripe (kept as-is) ────────────────────────────────────────
+    st.markdown(
+        '<div style="text-align:center;padding-top:8px;'
+        'border-top:1px solid rgba(255,255,255,0.07);">'
+        '  <p class="ah-subtitle">Finals Scoring</p>'
+        '  <div class="ah-stripe"></div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
     st.divider()
 
     # Toast on successful save
     if st.session_state.pop("finals_score_saved", False):
-        st.toast("🏆 Finals scores saved!", icon="🏆")
+        st.toast("Scores saved", icon="🏆")
 
     # ── Intro message (always shown if set) ───────────────────────────────────
     intro = get_intro_message()
     if intro:
         st.info(intro)
 
-    # ── Contact info (always shown) ───────────────────────────────────────────
-    st.caption(
-        f"Questions or issues? Contact "
-        f"**Shubhneet Sandhu** — [{_CONTACT_SHUBHNEET}](mailto:{_CONTACT_SHUBHNEET})"
-        f"&nbsp;·&nbsp;"
-        f"**Brunilda** — [{_CONTACT_BRUNILDA}](mailto:{_CONTACT_BRUNILDA})"
-    )
+    # # ── Contact info (always shown) ───────────────────────────────────────────
+    # st.caption(
+    #     f"Questions or issues? Contact "
+    #     f"**Shubhneet Sandhu** — [{_CONTACT_SHUBHNEET}](mailto:{_CONTACT_SHUBHNEET})"
+    #     f"&nbsp;·&nbsp;"
+    #     f"**Brunilda** — [{_CONTACT_BRUNILDA}](mailto:{_CONTACT_BRUNILDA})"
+    # )
 
     # ── Load scoring questions ────────────────────────────────────────────────
     questions = get_questions()
@@ -581,50 +651,44 @@ def show():
 
     judge_id = user.get("judge_id")
 
-    # ── Top-5 finalists from prelims ──────────────────────────────────────────
-    top5 = get_prelim_top5()
-    if not top5:
+    # ── Top-6 finalists from prelims ──────────────────────────────────────────
+    top6 = get_prelim_top6()
+    if not top6:
         st.info(
-            "🏁 No prelims scores yet — the Top 5 finalists will appear here "
+            "🏁 No prelims scores yet — the Top 6 finalists will appear here "
             "once prelims scoring is complete."
         )
         return
 
     # ── Metrics (red accent for finals) ──────────────────────────────────────
     finals_scores_map   = get_finals_scores_for_judge(judge_id) if judge_id else {}
-    top5_ids            = {t["competitor_id"] for t in top5}
+    top6_ids            = {t["competitor_id"] for t in top6}
     finals_scored_count = sum(
-        1 for cid in top5_ids
+        1 for cid in top6_ids
         if cid in finals_scores_map and finals_scores_map[cid] > 0
     )
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Finalist Teams", len(top5))
-    c2.metric("Scored",         finals_scored_count)
-    c3.metric("Remaining",      len(top5) - finals_scored_count)
+    # c1, c2, c3 = st.columns(3)
+    # c1.metric("Finalist Teams", len(top6))
+    # c2.metric("Scored",         finals_scored_count)
+    # c3.metric("Remaining",      len(top6) - finals_scored_count)
 
-    st.divider()
+    # st.divider()
 
-    # ── Finalist leaderboard ──────────────────────────────────────────────────
-    st.markdown(
-        '<p class="ah-section">🏆 Finalist Teams — Prelims Rankings</p>',
-        unsafe_allow_html=True,
-    )
-    _render_top5_table(top5)
-
-    st.divider()
-
-    # Load registrations for member details
+    # Load registrations for member details and prelim slot map
     all_registrations = get_team_registrations()
+    prelim_slot_map   = get_prelim_slot_map()
 
     # ── Team selector ─────────────────────────────────────────────────────────
     st.markdown('<p class="ah-section">Select Finalist to Score</p>', unsafe_allow_html=True)
 
     option_labels = []
     comp_by_label = {}
-    for team in top5:
+    for team in top6:
         cid       = team["competitor_id"]
         is_scored = cid in finals_scores_map and finals_scores_map[cid] > 0
-        label     = f"{'✅' if is_scored else '⏳'}  {team['competitor_name']}"
+        slot      = prelim_slot_map.get(team["competitor_name"], "")
+        slot_str  = f"  —  {slot}" if slot else ""
+        label     = f"{'✅' if is_scored else '⏳'}  {team['competitor_name']}{slot_str}"
         option_labels.append(label)
         comp_by_label[label] = team
 
@@ -640,13 +704,36 @@ def show():
     # ── Team info card ────────────────────────────────────────────────────────
     _render_team_card(comp_name, all_registrations)
 
+    # ── Prelim judge notes for this team ──────────────────────────────────────
+    prelim_notes = get_all_prelim_comments_for_competitor(comp_id)
+    if prelim_notes:
+        st.markdown('<p class="ah-section">📝 Prelim Judge Notes</p>', unsafe_allow_html=True)
+        for note in prelim_notes:
+            st.markdown(
+                f'<div style="background:rgba(15,20,48,0.72);border:1px solid rgba(74,128,212,0.25);'
+                f'border-left:4px solid #4A80D4;border-radius:10px;padding:12px 16px;margin-bottom:8px;">'
+                f'<p style="margin:0;color:rgba(215,228,255,0.88);font-size:0.90rem;">{note["comments"]}</p>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        st.markdown("<br>", unsafe_allow_html=True)
+
     # ── Scoring form ──────────────────────────────────────────────────────────
     st.markdown('<p class="ah-section">Score This Finalist</p>', unsafe_allow_html=True)
     _render_scoring_form(judge_id, comp_id, comp_name, questions, view_only=False)
 
     st.divider()
-    st.caption(
-        "Having trouble? Contact us at "
-        f"[{_CONTACT_SHUBHNEET}](mailto:{_CONTACT_SHUBHNEET}) "
-        f"or [{_CONTACT_BRUNILDA}](mailto:{_CONTACT_BRUNILDA})."
+    st.markdown(
+        '<p style="font-size: 14px;">'
+        'Having trouble? Contact us at '
+        '<a href="mailto:Shubhneet.Sandhu@GeorgianCollege.ca" style="color: rgb(107, 159, 228);">Shubhneet.Sandhu@GeorgianCollege.ca</a> '
+        'or '
+        '<a href="mailto:Brunilda.Xhaferllari@GeorgianCollege.ca" style="color: rgb(107, 159, 228);">Brunilda.Xhaferllari@GeorgianCollege.ca</a>.'
+        '</p>',
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        '<p style="text-align:center;color:rgba(180,190,215,0.30);'
+        'font-size:0.72rem;margin-top:8px;">Powered by Research and Innovation, Georgian College</p>',
+        unsafe_allow_html=True,
     )

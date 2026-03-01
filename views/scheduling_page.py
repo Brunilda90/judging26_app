@@ -2,7 +2,7 @@
 views/scheduling_page.py
 
 Public-facing mentor & robot scheduling portal.
-Accessible via ?page=schedule (no login required).
+Accessible via ?page=mentor-robot-schedule (no login required).
 
 Teams enter their registration email to look up their team, confirm with a
 checkbox, then book up to 2 mentor sessions and up to 2 robot demo sessions
@@ -680,10 +680,13 @@ def show():
     _render_header()
 
     st.markdown(
-        "Book your **20-minute mentor sessions** and **robot demo sessions** for "
-        "**Friday Mar 6** (6:20–8:00 PM) and **Saturday Mar 7** (10:00 AM–1:20 PM). "
-        "Each team may book up to **2 mentor** and **2 robot** sessions. "
-        "Only one team member needs to complete the booking on behalf of the group."
+        f'<p style="margin-top: 8px;">'
+        'Book your <strong>20-minute mentor sessions</strong> and <strong>robot demo sessions</strong> for '
+        '<strong>Friday Mar 6</strong> (6:20–8:00 PM) and <strong>Saturday Mar 7</strong> (10:00 AM–1:20 PM). '
+        'Each team may book up to <strong>2 mentor</strong> and <strong>2 robot</strong> sessions. '
+        'Only one team member needs to complete the booking on behalf of the group.'
+        '</p>',
+        unsafe_allow_html=True,
     )
     st.divider()
 
@@ -799,4 +802,9 @@ def show():
         "[Shubhneet.Sandhu@GeorgianCollege.ca](mailto:Shubhneet.Sandhu@GeorgianCollege.ca) "
         "or "
         "[Brunilda.Xhaferllari@GeorgianCollege.ca](mailto:Brunilda.Xhaferllari@GeorgianCollege.ca)."
+    )
+    st.markdown(
+        '<p style="text-align:center;color:rgba(180,190,215,0.30);'
+        'font-size:0.72rem;margin-top:8px;">Powered by Research and Innovation, Georgian College</p>',
+        unsafe_allow_html=True,
     )

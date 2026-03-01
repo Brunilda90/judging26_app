@@ -9,6 +9,7 @@ import streamlit as st
 
 from db import (
     MENTOR_NAMES,
+    MENTOR_ROOM_MAP,
     SCHED_ROBOT_ROOMS,
     SCHED_FRIDAY_SLOTS,
     SCHED_SATURDAY_SLOTS,
@@ -27,7 +28,7 @@ _KNOWN_APP_URL = "https://judgingapp26.streamlit.app"
 
 
 def _schedule_link() -> str:
-    return f"{_KNOWN_APP_URL}/?page=schedule"
+    return f"{_KNOWN_APP_URL}/?page=mentor-robot-schedule"
 
 
 def _is_friday(slot_label: str) -> bool:
@@ -168,11 +169,20 @@ def _mentor_tab():
     output = io.StringIO()
     writer = csv.DictWriter(
         output,
-        fieldnames=["team_name", "mentor_name", "slot_label", "booked_at"],
-        extrasaction="ignore",
+        fieldnames=["team_name", "room", "time", "booked_at"],
     )
     writer.writeheader()
-    writer.writerows(all_bookings)
+    for b in all_bookings:
+        # Derive room from MENTOR_ROOM_MAP (stored doc may not carry a room field)
+        room = b.get("room") or MENTOR_ROOM_MAP.get(b.get("mentor_name", ""), b.get("mentor_name", ""))
+        # Extract just the time portion from slot_label (strip "Fri · " / "Sat · " prefix)
+        time_str = b.get("slot_label", "").split("\u00b7", 1)[-1].strip()
+        writer.writerow({
+            "team_name": b.get("team_name", ""),
+            "room":      room,
+            "time":      time_str,
+            "booked_at": b.get("booked_at", ""),
+        })
     st.download_button(
         label="\U0001f4e5 Export Mentor Bookings CSV",
         data=output.getvalue(),

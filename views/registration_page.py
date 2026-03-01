@@ -471,3 +471,9 @@ def show():
                 st.rerun()
             except Exception as exc:
                 st.error(f"Submission failed — please try again. ({exc})")
+
+    st.markdown(
+        '<p style="text-align:center;color:rgba(180,190,215,0.30);'
+        'font-size:0.72rem;margin-top:32px;">Powered by Research and Innovation, Georgian College</p>',
+        unsafe_allow_html=True,
+    )
