@@ -497,15 +497,7 @@ def show():
     )
     st.divider()
 
-    # Team Name
-    st.markdown('<p class="ah-section">Team Name</p>', unsafe_allow_html=True)
-    team_name = st.text_input(
-        "Team Name", key="reg_team_name", max_chars=80,
-        placeholder="e.g. ByteBuilders", label_visibility="collapsed",
-    )
-    st.divider()
-
-    # Team Size
+    # ── Team Size (outside the form so changing it refreshes the member grid) ──
     st.markdown('<p class="ah-section">How many Members are in your team?</p>',
                 unsafe_allow_html=True)
     team_size = st.radio(
@@ -514,19 +506,33 @@ def show():
     )
     st.divider()
 
-    # Member Table
-    st.markdown('<p class="ah-section">Team Members</p>', unsafe_allow_html=True)
-    st.markdown(
-        '<p class="ah-example">Example: &nbsp; John Doe &nbsp;·&nbsp; johndoe@georgiancollege.ca'
-        ' &nbsp;·&nbsp; 705-739-4300 &nbsp;·&nbsp; Georgian College &nbsp;·&nbsp; Computer Engineering Technology</p>',
-        unsafe_allow_html=True,
-    )
-    members = _collect_members(team_size)
-    st.divider()
+    # ── Form: team name + member grid + submit ──────────────────────────────────
+    # Using st.form() means no rerun happens when the user tabs between fields —
+    # only the final Submit button triggers a rerun.
+    with st.form("reg_form", clear_on_submit=False):
+        st.markdown('<p class="ah-section">Team Name</p>', unsafe_allow_html=True)
+        team_name = st.text_input(
+            "Team Name", key="reg_team_name", max_chars=80,
+            placeholder="e.g. ByteBuilders", label_visibility="collapsed",
+        )
+        st.divider()
 
-    # Submit
-    st.write("")
-    if st.button("Submit Registration", type="primary", use_container_width=True):
+        st.markdown('<p class="ah-section">Team Members</p>', unsafe_allow_html=True)
+        st.markdown(
+            '<p class="ah-example">Example: &nbsp; John Doe &nbsp;·&nbsp; johndoe@georgiancollege.ca'
+            ' &nbsp;·&nbsp; 705-739-4300 &nbsp;·&nbsp; Georgian College &nbsp;·&nbsp; Computer Engineering Technology</p>',
+            unsafe_allow_html=True,
+        )
+        members = _collect_members(team_size)
+        st.divider()
+
+        st.write("")
+        submitted = st.form_submit_button(
+            "Submit Registration", type="primary", use_container_width=True
+        )
+
+    # Validation and DB write run only when Submit is clicked
+    if submitted:
         errors = _validate(team_name, team_size, members)
         if errors:
             for err in errors:
