@@ -727,34 +727,42 @@ def create_booking(team_name: str, slot_label: str, room: str) -> str:
         get_bookable_team_names.clear()
         return str(result.inserted_id)
     except DuplicateKeyError:
-        raise ValueError(f"Slot '{slot_label}' in room {room} is already taken.")
+        raise ValueError(
+            "⚡ Oops! Someone else just booked that slot at the same time. "
+            "Please pick another time from the available ones."
+        )
 
 
 def switch_booking(team_name: str, new_slot_label: str, new_room: str) -> str:
-    """Delete existing booking for team and create a new one atomically."""
+    """Switch a team's booking to a new slot/room using a single atomic update.
+    Replaces the old delete→insert pattern to eliminate the window where another
+    team could claim the freed slot between the two operations."""
     db = get_db()
-    # Capture old booking details for the audit log before deleting
+    # Capture old booking details for the audit log
     old = db.prelim_bookings.find_one({"team_name": team_name})
-    old_slot = old["slot_label"] if old else None
-    old_room = old["room"] if old else None
-    # Remove old booking first
-    db.prelim_bookings.delete_many({"team_name": team_name})
-    doc = {
-        "team_name": team_name,
-        "slot_label": new_slot_label,
-        "room": new_room,
-        "booked_at": datetime.utcnow(),
-    }
+    if not old:
+        raise ValueError(f"No existing booking found for '{team_name}'.")
+    old_slot = old["slot_label"]
+    old_room = old["room"]
+    # Single atomic update — MongoDB enforces the unique (slot_label, room) index
+    # here too, so a concurrent booking of the same target slot will be rejected.
     try:
-        result = db.prelim_bookings.insert_one(doc)
+        db.prelim_bookings.update_one(
+            {"team_name": team_name},
+            {"$set": {"slot_label": new_slot_label, "room": new_room,
+                      "booked_at": datetime.utcnow()}},
+        )
         log_booking_event(team_name, new_slot_label, new_room, "switched", old_slot, old_room)
         get_booked_slot_map.clear()
         get_all_bookings.clear()
         get_prelim_slot_map.clear()
         get_teams_booked_in_room.clear()
-        return str(result.inserted_id)
+        return str(old["_id"])
     except DuplicateKeyError:
-        raise ValueError(f"Slot '{new_slot_label}' in room {new_room} is already taken.")
+        raise ValueError(
+            "⚡ Oops! Someone else just switched to that slot at the same time. "
+            "Please pick another time from the available ones."
+        )
 
 
 def admin_update_booking(booking_id: Any, slot_label: str, room: str):
@@ -1005,7 +1013,10 @@ def create_mentor_booking_room(team_name: str, room: str, slot_label: str) -> st
         get_all_mentor_bookings.clear()
         return str(result.inserted_id)
     except DuplicateKeyError:
-        raise ValueError("That slot was just taken. Please refresh and try a different time.")
+        raise ValueError(
+            "⚡ Oops! Someone else just booked that slot at the same time. "
+            "Please pick another time from the available ones."
+        )
 
 
 def create_robot_booking(team_name: str, room: str, slot_label: str) -> str:
@@ -1029,7 +1040,8 @@ def create_robot_booking(team_name: str, room: str, slot_label: str) -> str:
         return str(result.inserted_id)
     except DuplicateKeyError:
         raise ValueError(
-            f"That slot is no longer available for Robot in {room}. Please choose another."
+            "⚡ Oops! Someone else just booked that slot at the same time. "
+            "Please pick another time from the available ones."
         )
 
 

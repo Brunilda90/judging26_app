@@ -263,6 +263,31 @@ label {{ color: rgba(200,215,245,0.80) !important; font-size: 0.86rem !important
 /* General text */
 .stMarkdown p, .stMarkdown li {{ color: rgba(225,230,245,0.90) !important; }}
 hr {{ border-color: rgba(255,255,255,0.10) !important; }}
+
+/* ── Mobile / tablet responsiveness ────────────────────────────────────────── */
+@media screen and (max-width: 768px) {{
+    .main .block-container {{
+        padding: 1.5rem 1rem !important;
+        margin-top: 0.5rem !important;
+        border-radius: 14px !important;
+    }}
+    /* Calendar grid: horizontal scroll on mobile */
+    [data-testid="stHorizontalBlock"] {{
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+    }}
+    [data-testid="column"] {{ min-width: 90px !important; }}
+    .cal-open, .cal-team, .cal-team-full {{
+        font-size: 0.75rem !important;
+        padding: 5px 6px !important;
+    }}
+}}
+@media screen and (max-width: 480px) {{
+    .main .block-container {{
+        padding: 1rem 0.6rem !important;
+        margin-top: 0.25rem !important;
+    }}
+}}
 </style>
 """
 
@@ -295,23 +320,25 @@ def _render_header():
     )
     gc_tag = _b64_tag(
         _LOGO_GC_PNG,
-        "height:44px;object-fit:contain;opacity:0.80;",
+        "height:30px;object-fit:contain;opacity:0.82;",
         "Georgian College"
     )
 
+    # Banner: AH logo centred; GC logo in its own flex row below — no absolute
+    # positioning so it never overlaps on any screen size
     banner = (
         '<div style="'
-        '  position:relative;'
         '  background:rgba(8,10,20,0.70);'
         '  border-radius:16px;'
-        '  padding:28px 24px 20px;'
+        '  padding:24px 20px 10px;'
         '  margin-bottom:4px;'
-        '  text-align:center;'
         '  border:1px solid rgba(255,255,255,0.07);'
         '">'
-        f'  {ah_tag}'
+        '  <div style="text-align:center;">'
+        f'    {ah_tag}'
+        '  </div>'
         + (
-            '<div style="position:absolute;bottom:14px;right:18px;">'
+            '<div style="display:flex;justify-content:flex-end;padding:6px 4px 0 0;">'
             f'{gc_tag}'
             '</div>'
             if gc_tag else ""

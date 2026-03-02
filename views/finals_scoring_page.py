@@ -365,6 +365,45 @@ div[data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) p {{
 
 /* ── Caption ── */
 .stCaption p {{ color: rgba(150,165,195,0.70) !important; font-size: 0.80rem !important; }}
+
+/* ── Mobile / tablet responsiveness ────────────────────────────────────────── */
+@media screen and (max-width: 768px) {{
+    .main .block-container {{
+        padding: 0 1rem 1.5rem !important;
+        margin-top: 0.25rem !important;
+        border-radius: 0 0 14px 14px !important;
+    }}
+    .main .block-container > div:first-child {{
+        margin-top: -1rem !important;
+    }}
+    /* Stack navbar columns on mobile */
+    [data-testid="stHorizontalBlock"]:first-of-type {{
+        flex-direction: column !important;
+        gap: 4px !important;
+    }}
+    [data-testid="stHorizontalBlock"]:first-of-type [data-testid="column"] {{
+        width: 100% !important;
+        min-width: 100% !important;
+        flex: none !important;
+    }}
+    .ah-nav-user {{ text-align: left !important; }}
+    div[data-testid="stRadio"] [role="radiogroup"] > label {{
+        min-width: 40px !important; height: 42px !important;
+    }}
+    [data-baseweb="base-input"] input {{
+        font-size: 16px !important;
+        min-height: 40px !important;
+    }}
+    button {{ min-height: 44px !important; }}
+}}
+@media screen and (max-width: 480px) {{
+    .main .block-container {{
+        padding: 0 0.6rem 1rem !important;
+    }}
+    div[data-testid="stRadio"] [role="radiogroup"] > label {{
+        min-width: 34px !important; height: 38px !important; font-size: 0.84rem !important;
+    }}
+}}
 </style>
 """
 

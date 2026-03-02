@@ -1,10 +1,11 @@
 import os
 import io
+import re
 import base64
 import streamlit as st
 from datetime import datetime
 from fpdf import FPDF
-from db import register_team, team_name_exists, contact_email_registered
+from db import register_team, team_name_exists, contact_email_registered, get_team_by_member_email
 
 # ── Asset paths ────────────────────────────────────────────────────────────────
 _LOGO_AH_WHITE = os.path.join("assets", "autohack_logo_white.png")
@@ -162,6 +163,49 @@ hr {{ border-color: rgba(255,255,255,0.10) !important; }}
     color: #FFFFFF; margin: 0 0 10px; font-size: 2rem; font-weight: 800; letter-spacing: 0.5px;
 }}
 .ah-success p {{ color: rgba(200,210,230,0.80); margin: 0; font-size: 1rem; line-height: 1.6; }}
+
+/* Georgian College logo: absolute on desktop, flows below AH logo on mobile */
+.ah-gc-logo {{ position: absolute; bottom: 14px; right: 18px; }}
+
+/* ── Mobile / tablet responsiveness ────────────────────────────────────────── */
+@media screen and (max-width: 768px) {{
+    .main .block-container {{
+        padding: 1.5rem 1rem !important;
+        margin-top: 0.5rem !important;
+        border-radius: 14px !important;
+    }}
+    /* Prevent iOS auto-zoom on focus and ensure usable tap targets */
+    [data-baseweb="base-input"] input,
+    [data-baseweb="textarea"] textarea {{
+        font-size: 16px !important;
+        min-height: 40px !important;
+    }}
+    /* Member grid: allow horizontal scroll rather than squishing inputs below tap size */
+    [data-testid="stHorizontalBlock"] {{
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        padding-bottom: 4px !important;
+    }}
+    [data-testid="column"] {{
+        min-width: 110px !important;
+    }}
+    /* Touch-friendly buttons */
+    button {{ min-height: 44px !important; }}
+    /* GC logo: detach from absolute, flow below AH logo */
+    .ah-gc-logo {{
+        position: static !important;
+        display: block !important;
+        margin-top: 8px !important;
+    }}
+    .ah-gc-logo img {{ height: 28px !important; }}
+}}
+@media screen and (max-width: 480px) {{
+    .main .block-container {{
+        padding: 1rem 0.6rem !important;
+        margin-top: 0.25rem !important;
+    }}
+    .ah-success {{ padding: 24px 18px !important; }}
+}}
 </style>
 """
 
@@ -195,28 +239,28 @@ def _render_header():
                     "AutoHack 2026")
     )
 
-    # ── Georgian College logo: small, bottom-right of banner ───────────────────
+    # ── Georgian College logo: small, below AH logo, right-aligned ────────────
     gc_tag = _b64_tag(
         _LOGO_GC_PNG,
-        "height:48px;object-fit:contain;opacity:0.85;",
+        "height:30px;object-fit:contain;opacity:0.82;",
         "Georgian College"
     )
 
-    # Banner wrapper: dark pill, full width, logo centred, GC logo bottom-right
+    # Banner wrapper: AH logo centred; GC logo in its own flex row below (no
+    # absolute positioning — avoids overlap on any screen size)
     banner = (
         '<div style="'
-        '  position:relative;'
         '  background:rgba(8,10,20,0.70);'
         '  border-radius:16px;'
-        '  padding:28px 24px 20px;'
+        '  padding:24px 20px 10px;'
         '  margin-bottom:4px;'
-        '  text-align:center;'
         '  border:1px solid rgba(255,255,255,0.07);'
         '">'
-        f'  {ah_tag}'
-        # GC logo pinned bottom-right inside the banner
+        '  <div style="text-align:center;">'
+        f'    {ah_tag}'
+        '  </div>'
         + (
-            '<div style="position:absolute;bottom:14px;right:18px;">'
+            '<div style="display:flex;justify-content:flex-end;padding:6px 4px 0 0;">'
             f'{gc_tag}'
             '</div>'
             if gc_tag else ""
@@ -280,8 +324,8 @@ def _generate_pdf(team_name: str, members: list) -> bytes:
 
     # Table header
     usable = 182  # mm
-    col_w = [10, 44, 54, 40, 34]  # sums to 182
-    headers = ["#", "Full Name", "Email", "Institution", "Program"]
+    col_w = [8, 38, 46, 22, 36, 32]  # sums to 182
+    headers = ["#", "Full Name", "Email", "Phone", "Institution", "Program"]
 
     pdf.set_font("Helvetica", "B", 9)
     pdf.set_text_color(255, 255, 255)
@@ -297,7 +341,7 @@ def _generate_pdf(team_name: str, members: list) -> bytes:
         fill = idx % 2 == 0
         pdf.set_fill_color(240, 243, 252) if fill else pdf.set_fill_color(255, 255, 255)
         row = [str(idx), m.get("name", ""), m.get("email", ""),
-               m.get("institution", ""), m.get("program", "")]
+               m.get("phone", ""), m.get("institution", ""), m.get("program", "")]
         for w, val in zip(col_w, row):
             pdf.cell(w, 7, val[:28], border=1, fill=True)
         pdf.ln()
@@ -354,7 +398,7 @@ def _clear_form_state():
         "reg_team_name", "reg_team_size",
     ]
     for i in range(1, 7):
-        keys += [f"reg_m_name_{i}", f"reg_m_email_{i}",
+        keys += [f"reg_m_name_{i}", f"reg_m_email_{i}", f"reg_m_phone_{i}",
                  f"reg_m_inst_{i}", f"reg_m_prog_{i}"]
     for k in keys:
         st.session_state.pop(k, None)
@@ -363,26 +407,29 @@ def _clear_form_state():
 # ── Member grid ─────────────────────────────────────────────────────────────────
 
 def _collect_members(team_size: int) -> list:
-    h0, h1, h2, h3, h4 = st.columns([1.1, 2.3, 2.5, 2.1, 2.3])
-    h0.markdown('<p class="col-hdr">&nbsp;</p>',      unsafe_allow_html=True)
-    h1.markdown('<p class="col-hdr">Full Name</p>',   unsafe_allow_html=True)
-    h2.markdown('<p class="col-hdr">Email</p>',       unsafe_allow_html=True)
-    h3.markdown('<p class="col-hdr">Institution</p>', unsafe_allow_html=True)
-    h4.markdown('<p class="col-hdr">Program</p>',     unsafe_allow_html=True)
+    h0, h1, h2, h3, h4, h5 = st.columns([1.0, 2.0, 2.0, 1.6, 1.8, 2.0])
+    h0.markdown('<p class="col-hdr">&nbsp;</p>',          unsafe_allow_html=True)
+    h1.markdown('<p class="col-hdr">Full Name</p>',       unsafe_allow_html=True)
+    h2.markdown('<p class="col-hdr">Email</p>',           unsafe_allow_html=True)
+    h3.markdown('<p class="col-hdr">Contact No.</p>',     unsafe_allow_html=True)
+    h4.markdown('<p class="col-hdr">Institution</p>',     unsafe_allow_html=True)
+    h5.markdown('<p class="col-hdr">Program</p>',         unsafe_allow_html=True)
 
     members = []
     for i in range(1, team_size + 1):
-        c0, c1, c2, c3, c4 = st.columns([1.1, 2.3, 2.5, 2.1, 2.3])
+        c0, c1, c2, c3, c4, c5 = st.columns([1.0, 2.0, 2.0, 1.6, 1.8, 2.0])
         c0.markdown(f'<span class="member-no">Member {i}</span>', unsafe_allow_html=True)
-        name  = c1.text_input("n", key=f"reg_m_name_{i}", label_visibility="collapsed",
+        name  = c1.text_input("n",  key=f"reg_m_name_{i}",  label_visibility="collapsed",
                                max_chars=80,  placeholder="Full Name")
-        email = c2.text_input("e", key=f"reg_m_email_{i}", label_visibility="collapsed",
+        email = c2.text_input("e",  key=f"reg_m_email_{i}", label_visibility="collapsed",
                                max_chars=120, placeholder="email@example.com")
-        inst  = c3.text_input("i", key=f"reg_m_inst_{i}",  label_visibility="collapsed",
+        phone = c3.text_input("ph", key=f"reg_m_phone_{i}", label_visibility="collapsed",
+                               max_chars=20,  placeholder="e.g. 705-739-4300")
+        inst  = c4.text_input("i",  key=f"reg_m_inst_{i}",  label_visibility="collapsed",
                                max_chars=120, placeholder="e.g. Georgian College")
-        prog  = c4.text_input("p", key=f"reg_m_prog_{i}",  label_visibility="collapsed",
+        prog  = c5.text_input("p",  key=f"reg_m_prog_{i}",  label_visibility="collapsed",
                                max_chars=120, placeholder="e.g. Computer Engineering Technology")
-        members.append((name.strip(), email.strip(), inst.strip(), prog.strip()))
+        members.append((name.strip(), email.strip(), phone.strip(), inst.strip(), prog.strip()))
     return members
 
 
@@ -392,11 +439,28 @@ def _validate(team_name, team_size, members):
     errors = []
     if not team_name.strip():
         errors.append("Team Name is required.")
-    for i, (name, email, inst, prog) in enumerate(members[:team_size], start=1):
+    for i, (name, email, phone, inst, prog) in enumerate(members[:team_size], start=1):
         if not name:
             errors.append(f"Member {i}: Full Name is required.")
         if not email or "@" not in email:
             errors.append(f"Member {i}: a valid Email is required.")
+        else:
+            existing = get_team_by_member_email(email)
+            if existing:
+                team = existing.get("team_name", "another team")
+                errors.append(
+                    f"Member {i}: **{email}** is already registered with team **{team}**. "
+                    f"If this is a mistake, please contact "
+                    f"Shubhneet.Sandhu@GeorgianCollege.ca or "
+                    f"Brunilda.Xhaferllari@GeorgianCollege.ca."
+                )
+        if phone:
+            digits = re.sub(r'\D', '', phone)
+            if len(digits) < 7 or len(digits) > 15:
+                errors.append(
+                    f"Member {i}: Contact No. must contain 7–15 digits "
+                    f"(e.g. 705-739-4300). You entered {len(digits)} digit(s)."
+                )
         if not inst:
             errors.append(f"Member {i}: Institution is required.")
         if not prog:
@@ -422,6 +486,15 @@ def show():
         "before submitting. **Only one response per team is needed.** The team leader will serve "
         "as the main contact for competition updates. We can't wait to see what you build! ⚙️"
     )
+    st.markdown(
+        '<p style="color:rgba(180,195,225,0.60);font-size:0.83rem;margin-top:-4px;">'
+        'If you have trouble, please email '
+        '<a href="mailto:Shubhneet.Sandhu@GeorgianCollege.ca" style="color:#6B9FE4;">'
+        'Shubhneet.Sandhu@GeorgianCollege.ca</a> or '
+        '<a href="mailto:Brunilda.Xhaferllari@GeorgianCollege.ca" style="color:#6B9FE4;">'
+        'Brunilda.Xhaferllari@GeorgianCollege.ca</a>.</p>',
+        unsafe_allow_html=True,
+    )
     st.divider()
 
     # Team Name
@@ -445,7 +518,7 @@ def show():
     st.markdown('<p class="ah-section">Team Members</p>', unsafe_allow_html=True)
     st.markdown(
         '<p class="ah-example">Example: &nbsp; John Doe &nbsp;·&nbsp; johndoe@georgiancollege.ca'
-        ' &nbsp;·&nbsp; Georgian College &nbsp;·&nbsp; Computer Engineering Technology</p>',
+        ' &nbsp;·&nbsp; 705-739-4300 &nbsp;·&nbsp; Georgian College &nbsp;·&nbsp; Computer Engineering Technology</p>',
         unsafe_allow_html=True,
     )
     members = _collect_members(team_size)
@@ -460,8 +533,8 @@ def show():
                 st.error(err)
         else:
             active_members = [
-                {"name": n, "email": e, "institution": inst, "program": prog}
-                for n, e, inst, prog in members[:team_size]
+                {"name": n, "email": e, "phone": ph, "institution": inst, "program": prog}
+                for n, e, ph, inst, prog in members[:team_size]
             ]
             try:
                 register_team(team_name.strip(), "", "", active_members, "")
