@@ -1028,6 +1028,15 @@ def create_robot_booking(team_name: str, room: str, slot_label: str) -> str:
         raise ValueError(
             f"Your team has already booked {MAX_ROBOT_BOOKINGS} robot sessions (the maximum)."
         )
+    # Pre-check: same team, same slot
+    if db.robot_bookings.find_one({"team_name": team_name, "slot_label": slot_label}):
+        raise ValueError("Your team already has a robot session booked at this time slot.")
+    # Pre-check: room+slot already taken (live DB query, bypasses cache)
+    if db.robot_bookings.find_one({"room": room, "slot_label": slot_label}):
+        raise ValueError(
+            "⚡ Oops! Someone else just booked that slot at the same time. "
+            "Please pick another time from the available ones."
+        )
     doc = {
         "team_name": team_name,
         "room": room,
