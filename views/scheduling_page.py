@@ -218,6 +218,53 @@ label, .stRadio label {{ color: rgba(220,228,245,0.90) !important; }}
     transform: translateY(-1px) !important;
 }}
 hr {{ border-color: rgba(255,255,255,0.10) !important; }}
+
+/* Georgian College logo: absolute on desktop, flows below AH logo on mobile */
+.ah-gc-logo {{ position: absolute; bottom: 14px; right: 18px; }}
+
+/* ── Mobile / tablet responsiveness ────────────────────────────────────────── */
+@media screen and (max-width: 768px) {{
+    .main .block-container {{
+        padding: 1.5rem 1rem !important;
+        margin-top: 0.5rem !important;
+        border-radius: 14px !important;
+    }}
+    [data-baseweb="base-input"] input {{
+        font-size: 16px !important;
+        min-height: 40px !important;
+    }}
+    /* Shrink availability grid cells to fit viewport — no horizontal scroll needed */
+    .slot-taken, .slot-mine, .slot-free {{
+        font-size: 0.72rem !important;
+        padding: 4px 5px !important;
+    }}
+    .stTabs button[role="tab"] {{
+        padding: 8px 12px !important;
+        font-size: 0.88rem !important;
+    }}
+    button {{ min-height: 44px !important; }}
+    /* GC logo: detach from absolute, flow below AH logo */
+    .ah-gc-logo {{
+        position: static !important;
+        display: block !important;
+        margin-top: 8px !important;
+    }}
+    .ah-gc-logo img {{ height: 28px !important; }}
+}}
+@media screen and (max-width: 480px) {{
+    .main .block-container {{
+        padding: 1rem 0.6rem !important;
+        margin-top: 0.25rem !important;
+    }}
+    .slot-taken, .slot-mine, .slot-free {{
+        font-size: 0.64rem !important;
+        padding: 3px 3px !important;
+    }}
+    .stTabs button[role="tab"] {{
+        padding: 8px 8px !important;
+        font-size: 0.80rem !important;
+    }}
+}}
 </style>
 """
 
@@ -251,23 +298,25 @@ def _render_header():
 
     gc_tag = _b64_tag(
         _LOGO_GC_PNG,
-        "height:44px;object-fit:contain;opacity:0.80;",
+        "height:30px;object-fit:contain;opacity:0.82;",
         "Georgian College"
     )
 
+    # Banner: AH logo centred; GC logo in its own flex row below — no absolute
+    # positioning so it never overlaps on any screen size
     banner = (
         '<div style="'
-        '  position:relative;'
         '  background:rgba(8,10,20,0.70);'
         '  border-radius:16px;'
-        '  padding:28px 24px 20px;'
+        '  padding:24px 20px 10px;'
         '  margin-bottom:4px;'
-        '  text-align:center;'
         '  border:1px solid rgba(255,255,255,0.07);'
         '">'
-        f'  {ah_tag}'
+        '  <div style="text-align:center;">'
+        f'    {ah_tag}'
+        '  </div>'
         + (
-            '<div style="position:absolute;bottom:14px;right:18px;">'
+            '<div style="display:flex;justify-content:flex-end;padding:6px 4px 0 0;">'
             f'{gc_tag}'
             '</div>'
             if gc_tag else ""
@@ -481,46 +530,15 @@ def _mentor_tab(team_name: str):
     slots_used        = len(mentor_bookings)
     team_booked_slots = {b["slot_label"] for b in mentor_bookings}
 
-    # ── Friday encouragement ───────────────────────────────────────────────────
-    # has_friday = any(_is_friday_slot(b["slot_label"]) for b in mentor_bookings)
-    # if not has_friday and slots_used < MAX_MENTOR_BOOKINGS:
-    #     st.warning(
-    #         "**Please prioritise a Friday evening session (6:20–8:00 PM)!** "
-    #         "Getting mentor feedback on Friday gives you all of Saturday to apply it. "
-    #         "Book a Friday slot below — it makes a big difference."
-    #     )
-
-        # ── Booking form ───────────────────────────────────────────────────────────
-    remaining = MAX_MENTOR_BOOKINGS - slots_used
-    st.divider()
-    st.markdown(
-        f'<p class="ah-section">Book a Mentor Session '
-        f'({remaining} slot{"s" if remaining > 1 else ""} remaining)</p>',
-        unsafe_allow_html=True,
-    )
-
-    chosen_slot, chosen_room = _mentor_slot_picker(mentor_booked_map, team_booked_slots)
-    if chosen_slot and chosen_room:
-        if st.button("Book Mentor Session", type="primary", use_container_width=True,
-                     key="book_mentor_btn"):
-            try:
-                create_mentor_booking_room(team_name, chosen_room, chosen_slot)
-                st.success(
-                    f"Mentor session booked for **{_short(chosen_slot)}** in **Room {chosen_room}**!"
-                )
-                st.rerun()
-            except ValueError as exc:
-                st.error(str(exc))
-
-    # ── Your current bookings ──────────────────────────────────────────────────
+    # ── Your current bookings (shown first) ────────────────────────────────────
     st.markdown('<p class="ah-section">Your Mentor Sessions</p>', unsafe_allow_html=True)
 
     if mentor_bookings:
         for b in mentor_bookings:
-            day_tag   = "Friday" if _is_friday_slot(b["slot_label"]) else "Saturday"
-            room      = MENTOR_ROOM_MAP.get(b.get("mentor_name", ""), "—")
+            day_tag    = "Friday" if _is_friday_slot(b["slot_label"]) else "Saturday"
+            room       = MENTOR_ROOM_MAP.get(b.get("mentor_name", ""), "—")
             short_slot = _short(b["slot_label"])
-            passed    = _slot_has_passed(b["slot_label"])
+            passed     = _slot_has_passed(b["slot_label"])
 
             st.markdown(
                 f'<div class="ah-booking-card">'
@@ -555,26 +573,42 @@ def _mentor_tab(team_name: str):
     else:
         st.info("No mentor sessions booked yet.")
 
+    # ── Booking form ───────────────────────────────────────────────────────────
+    remaining = MAX_MENTOR_BOOKINGS - slots_used
     if slots_used >= MAX_MENTOR_BOOKINGS:
         st.success(
             f"You've booked all {MAX_MENTOR_BOOKINGS} mentor sessions. "
             "To change a future session, cancel it above and rebook."
         )
-        # Still show the grid below for reference
+    else:
         st.divider()
-        st.markdown('<p class="ah-section">Availability Overview</p>', unsafe_allow_html=True)
-        st.write(
-            "Green = free  ·  Red = taken  ·  ⭐ = your session"
+        st.markdown(
+            f'<p class="ah-section">Book a Mentor Session '
+            f'({remaining} slot{"s" if remaining != 1 else ""} remaining'
+            f' &nbsp;·&nbsp; Each team can book 2 slots only)</p>',
+            unsafe_allow_html=True,
         )
-        _render_mentor_grid(mentor_booked_map, team_name)
-        return
+        st.caption(
+            "Please check the timeslots in the Availability Overview below for availability."
+        )
 
-    # ── Availability grid (below bookings + picker) ────────────────────────────
+        chosen_slot, chosen_room = _mentor_slot_picker(mentor_booked_map, team_booked_slots)
+        if chosen_slot and chosen_room:
+            if st.button("Book Mentor Session", type="primary", use_container_width=True,
+                         key="book_mentor_btn"):
+                try:
+                    create_mentor_booking_room(team_name, chosen_room, chosen_slot)
+                    st.success(
+                        f"Mentor session booked for **{_short(chosen_slot)}** in **Room {chosen_room}**!"
+                    )
+                    st.rerun()
+                except ValueError as exc:
+                    st.error(str(exc))
+
+    # ── Availability grid (always shown at bottom) ─────────────────────────────
     st.divider()
     st.markdown('<p class="ah-section">Availability Overview</p>', unsafe_allow_html=True)
-    st.write(
-        "Green = free  ·  Red = taken  ·  ⭐ = your session"
-    )
+    st.write("Green = free  ·  Red = taken  ·  ⭐ = your session")
     _render_mentor_grid(mentor_booked_map, team_name)
 
 
@@ -586,34 +620,7 @@ def _robot_tab(team_name: str):
     slots_used        = len(robot_bookings)
     team_booked_slots = {b["slot_label"] for b in robot_bookings}
 
-    # st.info(
-    #     f"Each team can book up to **{MAX_ROBOT_BOOKINGS}** robot demo sessions. "
-    #     "Slots are shared across three rooms — pick any available time."
-    # )
-
-    # ── Booking form ───────────────────────────────────────────────────────────
-    remaining = MAX_ROBOT_BOOKINGS - slots_used
-    st.divider()
-    st.markdown(
-        f'<p class="ah-section">Book a Robot Session '
-        f'({remaining} slot{"s" if remaining > 1 else ""} remaining)</p>',
-        unsafe_allow_html=True,
-    )
-
-    chosen_slot, chosen_room = _robot_slot_picker(robot_booked_map, team_booked_slots)
-    if chosen_slot and chosen_room:
-        if st.button("Book Robot Session", type="primary", use_container_width=True,
-                     key="book_robot_btn"):
-            try:
-                create_robot_booking(team_name, chosen_room, chosen_slot)
-                st.success(
-                    f"Robot session booked for **{_short(chosen_slot)}** — Room **{chosen_room}**!"
-                )
-                st.rerun()
-            except ValueError as exc:
-                st.error(str(exc))
-
-    # ── Your current bookings ──────────────────────────────────────────────────
+    # ── Your current bookings (shown first) ────────────────────────────────────
     st.markdown('<p class="ah-section">Your Robot Sessions</p>', unsafe_allow_html=True)
 
     if robot_bookings:
@@ -655,19 +662,39 @@ def _robot_tab(team_name: str):
     else:
         st.info("No robot sessions booked yet.")
 
+    # ── Booking form ───────────────────────────────────────────────────────────
+    remaining = MAX_ROBOT_BOOKINGS - slots_used
     if slots_used >= MAX_ROBOT_BOOKINGS:
         st.success(
             f"You've booked all {MAX_ROBOT_BOOKINGS} robot sessions. "
             "To change a future session, cancel it above and rebook."
         )
-        # Still show the grid below for reference
+    else:
         st.divider()
-        st.markdown('<p class="ah-section">Availability Overview</p>', unsafe_allow_html=True)
-        st.write("Green = free  ·  Red = taken  ·  ⭐ = your session")
-        _render_robot_grid(robot_booked_map, team_name)
-        return
+        st.markdown(
+            f'<p class="ah-section">Book a Robot Session '
+            f'({remaining} slot{"s" if remaining != 1 else ""} remaining'
+            f' &nbsp;·&nbsp; Each team can book 2 slots only)</p>',
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "Please check the timeslots in the Availability Overview below for availability."
+        )
 
-    # ── Availability grid (below bookings + picker) ────────────────────────────
+        chosen_slot, chosen_room = _robot_slot_picker(robot_booked_map, team_booked_slots)
+        if chosen_slot and chosen_room:
+            if st.button("Book Robot Session", type="primary", use_container_width=True,
+                         key="book_robot_btn"):
+                try:
+                    create_robot_booking(team_name, chosen_room, chosen_slot)
+                    st.success(
+                        f"Robot session booked for **{_short(chosen_slot)}** — Room **{chosen_room}**!"
+                    )
+                    st.rerun()
+                except ValueError as exc:
+                    st.error(str(exc))
+
+    # ── Availability grid (always shown at bottom) ─────────────────────────────
     st.divider()
     st.markdown('<p class="ah-section">Availability Overview</p>', unsafe_allow_html=True)
     st.write("Green = free  ·  Red = taken  ·  ⭐ = your session")
