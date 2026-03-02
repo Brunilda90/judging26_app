@@ -5,6 +5,9 @@ from db import (
     get_competitors,
     get_questions,
     get_answers_for_judge_competitor,
+    get_manual_finalists,
+    set_manual_finalists,
+    clear_manual_finalists,
 )
 import io
 import csv
@@ -139,3 +142,67 @@ def show():
             mime="text/csv",
             help="Download per-judge, per-competitor question-level submissions",
         )
+
+    # ── Finals Selection ───────────────────────────────────────────────────────
+    st.divider()
+    st.subheader("🏆 Finals Selection")
+    st.caption(
+        "Choose which teams advance to the Finals round. "
+        "The selected teams will appear in the Finals Judge Portal dropdown. "
+        "If no selection is saved, the portal uses the automatic top-6 by prelim average score."
+    )
+
+    # All scored competitors in rank order (same as the leaderboard above)
+    scored_results = [r for r in results if r.get("num_scores", 0) > 0]
+    option_names   = [r["competitor_name"] for r in scored_results]
+    by_name        = {r["competitor_name"]: r for r in scored_results}
+
+    current_finalists = get_manual_finalists()
+    current_names     = [f["competitor_name"] for f in current_finalists]
+
+    if current_finalists:
+        st.success(
+            f"✅ **{len(current_finalists)} finalist(s) manually selected** — "
+            "these are shown in the Finals Judge Portal."
+        )
+    else:
+        auto_names = option_names[:6]
+        if auto_names:
+            st.info(
+                f"**Auto mode** — Finals Portal will show the top {len(auto_names)} "
+                f"team(s) by prelim score: {', '.join(auto_names)}"
+            )
+        else:
+            st.warning("No scored teams yet — score prelims before selecting finalists.")
+
+    selected_names = st.multiselect(
+        "Select teams for Finals (max 6)",
+        options=option_names,
+        default=[n for n in current_names if n in option_names],
+        max_selections=6,
+        help="Only teams that have received at least one prelim score are listed.",
+    )
+
+    col_save, col_clear, _ = st.columns([2, 2, 4])
+    with col_save:
+        if st.button("Save Finalists", type="primary", use_container_width=True):
+            if not selected_names:
+                st.error("Select at least 1 team before saving.")
+            else:
+                finalist_dicts = [
+                    {
+                        "competitor_id":   by_name[n]["competitor_id"],
+                        "competitor_name": by_name[n]["competitor_name"],
+                        "avg_score":       by_name[n].get("avg_score", 0),
+                        "num_scores":      by_name[n].get("num_scores", 0),
+                    }
+                    for n in selected_names
+                ]
+                set_manual_finalists(finalist_dicts)
+                st.success(f"✅ {len(finalist_dicts)} finalist(s) saved to Finals Portal!")
+                st.rerun()
+    with col_clear:
+        if current_finalists:
+            if st.button("Clear — use auto top-6", use_container_width=True):
+                clear_manual_finalists()
+                st.rerun()
