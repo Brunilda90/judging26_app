@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import streamlit as st
 from bson import ObjectId
 from pymongo import ASCENDING, MongoClient
-from pymongo.errors import DuplicateKeyError
+from pymongo.errors import DuplicateKeyError, OperationFailure
 from bson.binary import Binary
 
 def _get_mongo_uri() -> str:
@@ -61,6 +61,23 @@ def _oid(value: Any) -> ObjectId:
     return ObjectId(str(value))
 
 
+def _ensure_index(col, key_or_keys, **kwargs):
+    """Idempotent index creation.
+
+    If an index on the same key(s) already exists with different options
+    (OperationFailure code 85 = IndexOptionsConflict, or 86 = IndexKeySpecsConflict),
+    skip silently — the existing index is functional and crashing startup is worse.
+    Any other OperationFailure is re-raised.
+    """
+    try:
+        col.create_index(key_or_keys, **kwargs)
+    except OperationFailure as exc:
+        if exc.code in (85, 86):   # IndexOptionsConflict / IndexKeySpecsConflict
+            pass
+        else:
+            raise
+
+
 def _doc_with_id(doc: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if not doc:
         return None
@@ -74,33 +91,28 @@ def _doc_with_id(doc: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 
 
 def init_db():
-    """
-    Create indexes and seed default admin.
-    """
+    """Create indexes and seed default admin."""
     if not is_db_configured():
         st.error(
-            "Database configuration missing. Create a .streamlit/secrets.toml with [database] uri and name. Login is disabled until configured."
+            "Database configuration missing. Create a .streamlit/secrets.toml "
+            "with [database] uri and name. Login is disabled until configured."
         )
         return
     db = get_db()
-    # Make email index sparse so judges without emails don't conflict
-    try:
-        db.judges.drop_index("email_1")
-    except Exception:
-        pass
-    db.judges.create_index("email", unique=True, sparse=True)
-    db.users.create_index("username", unique=True)
-    db.users.create_index("judge_id", unique=True, sparse=True)
-    db.scores.create_index(
-        [("judge_id", ASCENDING), ("competitor_id", ASCENDING)], unique=True
+    _ensure_index(db.judges, "email",    unique=True, sparse=True)
+    _ensure_index(db.users,  "username", unique=True)
+    _ensure_index(db.users,  "judge_id", unique=True, sparse=True)
+    _ensure_index(db.scores,
+        [("judge_id", ASCENDING), ("competitor_id", ASCENDING)],
+        unique=True,
     )
-    db.answers.create_index(
+    _ensure_index(db.answers,
         [("judge_id", ASCENDING), ("competitor_id", ASCENDING), ("question_id", ASCENDING)],
         unique=True,
     )
-    db.team_registrations.create_index("team_name")
-    db.team_registrations.create_index("contact_email")
-    db.team_registrations.create_index("status")
+    _ensure_index(db.team_registrations, "team_name")
+    _ensure_index(db.team_registrations, "contact_email")
+    _ensure_index(db.team_registrations, "status")
     _init_booking_indexes(db)
     _init_booking_history_indexes(db)
     _init_scheduling_indexes(db)
@@ -609,18 +621,15 @@ PRELIM_SLOTS: list = [
 
 def _init_booking_indexes(db):
     """Create unique indexes for the prelim_bookings collection."""
-    # Each (slot, room) pair can only be assigned once
-    db.prelim_bookings.create_index(
-        [("slot_label", ASCENDING), ("room", ASCENDING)], unique=True
-    )
-    # Each approved team can only have one booking at a time
-    db.prelim_bookings.create_index("team_name", unique=True)
+    _ensure_index(db.prelim_bookings,
+        [("slot_label", ASCENDING), ("room", ASCENDING)], unique=True)
+    _ensure_index(db.prelim_bookings, "team_name", unique=True)
 
 
 def _init_booking_history_indexes(db):
     """Create indexes for the prelim_booking_history audit collection."""
-    db.prelim_booking_history.create_index([("timestamp", ASCENDING)])
-    db.prelim_booking_history.create_index([("team_name", ASCENDING)])
+    _ensure_index(db.prelim_booking_history, [("timestamp", ASCENDING)])
+    _ensure_index(db.prelim_booking_history, [("team_name",  ASCENDING)])
 
 
 def log_booking_event(
@@ -869,22 +878,14 @@ MAX_ROBOT_BOOKINGS: int = 2
 
 def _init_scheduling_indexes(db):
     """Create unique indexes for mentor_bookings and robot_bookings collections."""
-    # One team per mentor per slot
-    db.mentor_bookings.create_index(
-        [("mentor_name", ASCENDING), ("slot_label", ASCENDING)], unique=True
-    )
-    # A team can only have one mentor booking per slot (no double-booking same time)
-    db.mentor_bookings.create_index(
-        [("team_name", ASCENDING), ("slot_label", ASCENDING)], unique=True
-    )
-    # One team per robot room per slot
-    db.robot_bookings.create_index(
-        [("room", ASCENDING), ("slot_label", ASCENDING)], unique=True
-    )
-    # A team can only have one robot booking per slot
-    db.robot_bookings.create_index(
-        [("team_name", ASCENDING), ("slot_label", ASCENDING)], unique=True
-    )
+    _ensure_index(db.mentor_bookings,
+        [("mentor_name", ASCENDING), ("slot_label", ASCENDING)], unique=True)
+    _ensure_index(db.mentor_bookings,
+        [("team_name",   ASCENDING), ("slot_label", ASCENDING)], unique=True)
+    _ensure_index(db.robot_bookings,
+        [("room",      ASCENDING), ("slot_label", ASCENDING)], unique=True)
+    _ensure_index(db.robot_bookings,
+        [("team_name", ASCENDING), ("slot_label", ASCENDING)], unique=True)
 
 
 def get_mentor_bookings_for_team(team_name: str) -> list:
@@ -1310,15 +1311,10 @@ def get_scores_for_judge_all(judge_id: Any) -> Dict[str, float]:
 
 def _init_finals_indexes(db):
     """Create unique indexes for finals_scores and finals_answers collections."""
-    db.finals_scores.create_index(
-        [("judge_id", ASCENDING), ("competitor_id", ASCENDING)], unique=True
-    )
-    db.finals_answers.create_index(
-        [
-            ("judge_id", ASCENDING),
-            ("competitor_id", ASCENDING),
-            ("question_id", ASCENDING),
-        ],
+    _ensure_index(db.finals_scores,
+        [("judge_id", ASCENDING), ("competitor_id", ASCENDING)], unique=True)
+    _ensure_index(db.finals_answers,
+        [("judge_id", ASCENDING), ("competitor_id", ASCENDING), ("question_id", ASCENDING)],
         unique=True,
     )
 
