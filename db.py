@@ -1252,9 +1252,36 @@ def get_prelim_top5() -> list:
     return scored[:5]
 
 
+def get_manual_finalists() -> list:
+    """Return the admin-selected finalists list, or [] if none have been saved."""
+    db = get_db()
+    doc = db.settings.find_one({"key": "finalists"})
+    return doc.get("value", []) if doc else []
+
+
+def set_manual_finalists(finalists: list) -> None:
+    """Persist the admin-selected finalists (list of competitor dicts)."""
+    db = get_db()
+    db.settings.replace_one(
+        {"key": "finalists"},
+        {"key": "finalists", "value": finalists},
+        upsert=True,
+    )
+
+
+def clear_manual_finalists() -> None:
+    """Remove the manual finalist selection (Finals Portal reverts to auto top-6)."""
+    db = get_db()
+    db.settings.delete_one({"key": "finalists"})
+
+
 def get_prelim_top6() -> list:
-    """Return up to 6 competitors with the highest average prelim score
-    (only competitors that have received at least one score)."""
+    """Return finalists for the Finals Judge Portal.
+    Uses the admin-selected list if one has been saved; otherwise auto top-6 by
+    average prelim score (only competitors with at least one score)."""
+    manual = get_manual_finalists()
+    if manual:
+        return manual
     leaderboard = get_leaderboard()
     scored = [c for c in leaderboard if c.get("num_scores", 0) > 0]
     return scored[:6]
