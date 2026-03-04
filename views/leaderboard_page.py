@@ -19,9 +19,7 @@ def show():
         st.error("Admin access required.")
         st.stop()
 
-    st.header("Leaderboard")
-    if st.button("Refresh leaderboard"):
-        st.rerun()
+    st.header("Prelims Leaderboard")
 
     # Get aggregated scores
     results = get_leaderboard()
