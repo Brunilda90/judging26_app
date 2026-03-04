@@ -26,6 +26,8 @@ from db import (
     get_finals_scoring_matrix,
     get_all_prelim_comments_for_competitor,
     get_all_finals_comments_for_competitor,
+    clear_all_prelim_scores,
+    clear_all_finals_scores,
 )
 
 _ROUND_LABELS = {"prelims": "🏁 Prelims", "finals": "🏆 Finals"}
@@ -227,6 +229,34 @@ def show():
             "Average scores per team per question, combined across all prelims judges. "
             "Sorted by overall average (highest first)."
         )
+
+        # ── Prelim score controls ───────────────────────────────────────────────
+        col_rp, col_cp, _ = st.columns([2, 2, 4])
+        with col_rp:
+            if st.button("🔄 Refresh Scores", use_container_width=True, key="so_refresh_prelims"):
+                st.rerun()
+        with col_cp:
+            if st.button("🗑️ Clear All Prelim Scores", use_container_width=True, key="so_clear_prelims"):
+                st.session_state["so_confirm_clear_prelims"] = True
+        if st.session_state.get("so_confirm_clear_prelims"):
+            st.warning(
+                "⚠️ This will permanently delete **all prelim judge scores**. "
+                "This cannot be undone."
+            )
+            c1, c2, _ = st.columns([2, 2, 4])
+            with c1:
+                if st.button("✅ Yes, clear prelim scores", type="primary",
+                             use_container_width=True, key="so_confirm_prelim_yes"):
+                    clear_all_prelim_scores()
+                    st.session_state.pop("so_confirm_clear_prelims", None)
+                    st.success("All prelim scores cleared.")
+                    st.rerun()
+            with c2:
+                if st.button("Cancel", use_container_width=True, key="so_confirm_prelim_no"):
+                    st.session_state.pop("so_confirm_clear_prelims", None)
+                    st.rerun()
+
+        st.divider()
         _score_matrix_tab("Prelims", is_finals=False)
 
     with tab_finals:
@@ -234,4 +264,32 @@ def show():
         st.caption(
             "Average scores per finalist team per question, combined across all finals judges."
         )
+
+        # ── Finals score controls ───────────────────────────────────────────────
+        col_rf, col_cf, _ = st.columns([2, 2, 4])
+        with col_rf:
+            if st.button("🔄 Refresh Scores", use_container_width=True, key="so_refresh_finals"):
+                st.rerun()
+        with col_cf:
+            if st.button("🗑️ Clear All Finals Scores", use_container_width=True, key="so_clear_finals"):
+                st.session_state["so_confirm_clear_finals"] = True
+        if st.session_state.get("so_confirm_clear_finals"):
+            st.warning(
+                "⚠️ This will permanently delete **all finals judge scores**. "
+                "This cannot be undone."
+            )
+            c1, c2, _ = st.columns([2, 2, 4])
+            with c1:
+                if st.button("✅ Yes, clear finals scores", type="primary",
+                             use_container_width=True, key="so_confirm_finals_yes"):
+                    clear_all_finals_scores()
+                    st.session_state.pop("so_confirm_clear_finals", None)
+                    st.success("All finals scores cleared.")
+                    st.rerun()
+            with c2:
+                if st.button("Cancel", use_container_width=True, key="so_confirm_finals_no"):
+                    st.session_state.pop("so_confirm_clear_finals", None)
+                    st.rerun()
+
+        st.divider()
         _score_matrix_tab("Finals", is_finals=True)

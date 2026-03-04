@@ -210,7 +210,7 @@ def main():
             "Manage Judges",
             "Manage Questions",
             "Scoring Overview",
-            "Leaderboard",
+            "Prelims Leaderboard",
         ])
     else:
         # Judges: no navigation radio — page is determined by their assigned round.
@@ -231,7 +231,7 @@ def main():
         questions_page.show()
     elif page == "Scoring Overview":
         scoring_overview_page.show()
-    elif page == "Leaderboard":
+    elif page == "Prelims Leaderboard":
         leaderboard_page.show()
     elif page == "Prelims Scoring":
         scoring_page.show()

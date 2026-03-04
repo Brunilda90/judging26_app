@@ -470,7 +470,7 @@ def _render_scoring_form(judge_id, comp_id: str, comp_name: str, questions, view
     st.markdown(
         '<p style="font-size:0.77rem;color:rgba(0,75,135,0.65);margin:0 0 4px;">'
         '&nbsp;&nbsp;'
-        '<span style="font-weight:700;color:#FF6666;">0</span> = Not scored&ensp;·&ensp;'
+        '<span style="font-weight:700;color:#FF6666;">-</span> = Not scored&ensp;·&ensp;'
         '<span style="font-weight:700;color:rgba(160,180,220,0.85);">1–3</span> = Needs work&ensp;·&ensp;'
         '<span style="font-weight:700;color:rgba(160,180,220,0.85);">4–6</span> = Meets expectations&ensp;·&ensp;'
         '<span style="font-weight:700;color:#4CD4A0;">7–9</span> = Excellent&ensp;·&ensp;'
@@ -480,6 +480,15 @@ def _render_scoring_form(judge_id, comp_id: str, comp_name: str, questions, view
     )
 
     disabled = view_only or (scored and not editing)
+
+    # Highlighted questions (populated when judge tries to save with missing scores)
+    highlight_key     = f"prelims_highlight_{judge_id}_{comp_id}"
+    highlighted_qids  = st.session_state.get(highlight_key, set())
+    # Scroll flag: popped immediately so it only fires on the first render after failure
+    should_scroll     = st.session_state.pop(f"{highlight_key}_scroll", False)
+    first_missing_qid = next(
+        (q["id"] for q in questions if q["id"] in highlighted_qids), None
+    )
 
     # Use st.form when editable to batch all chip interactions into a single rerun
     # on Save; fall back to a no-op context when the form is read-only.
@@ -495,22 +504,43 @@ def _render_scoring_form(judge_id, comp_id: str, comp_name: str, questions, view
             stored_raw    = int(existing.get(q["id"], 0))
             stored_choice = int(stored_raw / 10) if stored_raw else 0
 
-            # Question card header
+            # Question card header — red border + scroll anchor on first missing question
+            is_missing = q["id"] in highlighted_qids
+            id_attr    = ' id="q-missing-first"' if is_missing and q["id"] == first_missing_qid else ""
+            style_attr = (
+                ' style="border-left-color:#CC0000!important;'
+                'background:rgba(204,0,0,0.08)!important;"'
+                if is_missing else ""
+            )
             st.markdown(
-                f'<div class="q-header">'
+                f'<div class="q-header"{id_attr}{style_attr}>'
                 f'  <span class="q-num">Q{i}</span>'
                 f'  <span class="q-text">{q["prompt"]}</span>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
 
-            # Score chips (0–10 horizontal radio, label hidden — shown in q-header above)
+            # Notice strip shown below the header for unanswered questions
+            if is_missing:
+                st.markdown(
+                    '<div style="background:rgba(180,30,30,0.12);'
+                    'border-left:4px solid #CC0000;'
+                    'border-right:1px solid rgba(204,0,0,0.22);'
+                    'padding:7px 16px;font-size:0.78rem;'
+                    'color:rgba(255,170,170,0.92);font-weight:500;">'
+                    "⚠ This question hasn't been scored yet — "
+                    "please select a rating before saving."
+                    '</div>',
+                    unsafe_allow_html=True,
+                )
+
+            # Score chips: 0 shown as "—" (placeholder for "not scored")
             choice = st.radio(
                 q["prompt"],
                 options=list(range(0, 11)),
                 index=stored_choice,
                 horizontal=True,
-                format_func=lambda x: str(x),
+                format_func=lambda x: "—" if x == 0 else str(x),
                 key=f"q_chip_{judge_id}_{comp_id}_{q['id']}",
                 label_visibility="collapsed",
                 disabled=disabled,
@@ -542,18 +572,39 @@ def _render_scoring_form(judge_id, comp_id: str, comp_name: str, questions, view
                     "Save Scores", type="primary", use_container_width=True
                 )
             if submitted:
-                missing = [q for q in questions if q["id"] not in answers]
+                # 0 = "—" placeholder = not scored yet
+                missing = [q for q in questions if answers.get(q["id"], 0) == 0]
                 if missing:
-                    st.error(
-                        f"Please score all {len(missing)} remaining "
-                        f"question{'s' if len(missing) != 1 else ''} before saving."
-                    )
+                    q_num_map  = {q["id"]: i for i, q in enumerate(questions, 1)}
+                    missed_str = ", ".join(f"Q{q_num_map[q['id']]}" for q in missing)
+                    st.session_state[highlight_key]            = {q["id"] for q in missing}
+                    st.session_state[f"{highlight_key}_scroll"] = True
+                    st.error(f"Please score {missed_str} before saving.")
+                    st.rerun()
                 else:
+                    st.session_state.pop(highlight_key, None)
                     cleaned = {qid: val * 10 for qid, val in answers.items()}
                     save_answers_for_judge(judge_id, comp_id, cleaned, comments=comments)
                     st.session_state[editing_key] = False
                     st.session_state["score_saved"] = True
                     st.rerun()
+
+    # Scroll to the first unanswered question (fires once; flag was popped at top of function)
+    if should_scroll and first_missing_qid:
+        import streamlit.components.v1 as components
+        components.html(
+            """<script>
+            (function() {
+                var el = window.parent.document.getElementById('q-missing-first');
+                if (el) {
+                    setTimeout(function() {
+                        el.scrollIntoView({behavior: 'smooth', block: 'center'});
+                    }, 150);
+                }
+            })();
+            </script>""",
+            height=0,
+        )
 
 
 # ── Main entry point ───────────────────────────────────────────────────────────
@@ -694,9 +745,24 @@ def show():
         comp_by_label[label] = c
 
     if option_labels:
+        # ── Persist selected team across reruns ──────────────────────────────
+        # Labels flip between ⏳/✅ after saving, so we track by team name and
+        # patch the selectbox session-state value when the label changes.
+        _sel_key  = f"prelims_team_sel_{judge_id}"
+        _name_key = f"prelims_sel_name_{judge_id}"
+        _saved_name = st.session_state.get(_name_key, "")
+        if _saved_name:
+            _cur = st.session_state.get(_sel_key, "")
+            if _cur not in option_labels:
+                for _lbl in option_labels:
+                    if _saved_name in _lbl:
+                        st.session_state[_sel_key] = _lbl
+                        break
         selected_label = st.selectbox(
-            "Select a team to score", option_labels, label_visibility="collapsed"
+            "Select a team to score", option_labels,
+            label_visibility="collapsed", key=_sel_key,
         )
+        st.session_state[_name_key] = comp_by_label[selected_label]["name"]
     else:
         st.selectbox(
             "Select a team to score", ["— No teams yet —"], label_visibility="collapsed"

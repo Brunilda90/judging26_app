@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timezone
-from db import get_team_registrations, update_registration
+from db import get_team_registrations, update_registration, delete_registration
 
 _KNOWN_APP_URL    = "https://judgingapp26.streamlit.app"
 _MAX_MEMBERS      = 6   # public registration cap (students see 6 slots)
@@ -72,20 +72,23 @@ def show():
 
     st.divider()
 
-    # ── Track which team is being viewed / edited ────────────────────────────────
+    # ── Track which team is being viewed / edited / deleted ──────────────────────
     if "editing_reg_id" not in st.session_state:
         st.session_state["editing_reg_id"] = None
     if "viewing_reg_id" not in st.session_state:
         st.session_state["viewing_reg_id"] = None
+    if "confirm_delete_reg_id" not in st.session_state:
+        st.session_state["confirm_delete_reg_id"] = None
 
     # ── Table header ─────────────────────────────────────────────────────────────
-    hcols = st.columns([2.2, 0.7, 2.2, 1.5, 1.0, 0.9])
+    hcols = st.columns([2.2, 0.7, 2.2, 1.5, 0.85, 0.75, 0.75])
     hcols[0].markdown("**Team Name**")
     hcols[1].markdown("**Members**")
     hcols[2].markdown("**Member 1 Email**")
     hcols[3].markdown("**Submitted**")
     hcols[4].markdown("")
     hcols[5].markdown("")
+    hcols[6].markdown("")
     st.divider()
 
     # ── One row per team ─────────────────────────────────────────────────────────
@@ -101,7 +104,9 @@ def show():
         is_editing = st.session_state["editing_reg_id"] == reg_id
         is_viewing = st.session_state["viewing_reg_id"] == reg_id
 
-        row = st.columns([2.2, 0.7, 2.2, 1.5, 1.0, 0.9])
+        is_confirming_delete = st.session_state["confirm_delete_reg_id"] == reg_id
+
+        row = st.columns([2.2, 0.7, 2.2, 1.5, 0.85, 0.75, 0.75])
         row[0].write(reg.get("team_name", "—"))
         row[1].write(str(len(members)))
         row[2].write(member1_email)
@@ -116,6 +121,7 @@ def show():
             if row[4].button("👁 View", key=f"view_{reg_id}"):
                 st.session_state["viewing_reg_id"] = reg_id
                 st.session_state["editing_reg_id"] = None
+                st.session_state["confirm_delete_reg_id"] = None
                 st.rerun()
 
         # Edit button
@@ -127,7 +133,40 @@ def show():
             if row[5].button("✏️ Edit", key=f"edit_{reg_id}"):
                 st.session_state["editing_reg_id"] = reg_id
                 st.session_state["viewing_reg_id"] = None
+                st.session_state["confirm_delete_reg_id"] = None
                 st.rerun()
+
+        # Delete button
+        if is_confirming_delete:
+            if row[6].button("✕ Cancel", key=f"del_cancel_{reg_id}"):
+                st.session_state["confirm_delete_reg_id"] = None
+                st.rerun()
+        else:
+            if row[6].button("🗑️", key=f"del_{reg_id}", help="Delete this registration"):
+                st.session_state["confirm_delete_reg_id"] = reg_id
+                st.session_state["editing_reg_id"] = None
+                st.session_state["viewing_reg_id"] = None
+                st.rerun()
+
+        # ── Delete confirmation panel ─────────────────────────────────────────────
+        if is_confirming_delete:
+            with st.container(border=True):
+                st.warning(
+                    f"⚠️ Are you sure you want to **permanently delete** "
+                    f"**{reg.get('team_name', 'this team')}**? This cannot be undone."
+                )
+                conf_yes, conf_no, _ = st.columns([1.5, 1, 5])
+                if conf_yes.button(
+                    "✅ Yes, delete", type="primary",
+                    use_container_width=True, key=f"del_confirm_{reg_id}"
+                ):
+                    delete_registration(reg_id)
+                    st.session_state["confirm_delete_reg_id"] = None
+                    st.success(f"✅ Registration for **{reg.get('team_name', '')}** deleted.")
+                    st.rerun()
+                if conf_no.button("Cancel", use_container_width=True, key=f"del_no_{reg_id}"):
+                    st.session_state["confirm_delete_reg_id"] = None
+                    st.rerun()
 
         # ── Inline view panel ────────────────────────────────────────────────────
         if is_viewing:

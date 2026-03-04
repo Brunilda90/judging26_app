@@ -290,6 +290,21 @@ def get_scores_for_judge(judge_id: Any):
     return {str(row["competitor_id"]): row["value"] for row in rows}
 
 
+def clear_all_prelim_scores() -> None:
+    """Delete every prelim score and answer document. Clears the leaderboard cache."""
+    db = get_db()
+    db.scores.delete_many({})
+    db.answers.delete_many({})
+    get_leaderboard.clear()
+
+
+def clear_all_finals_scores() -> None:
+    """Delete every finals score and answer document."""
+    db = get_db()
+    db.finals_scores.delete_many({})
+    db.finals_answers.delete_many({})
+
+
 @st.cache_data(ttl=30)
 def get_leaderboard():
     db = get_db()
@@ -567,6 +582,15 @@ def update_registration(reg_id: Any, team_name: str = None, contact_email: str =
         get_team_registrations.clear()
         get_bookable_team_names.clear()
         get_approved_team_names.clear()
+
+
+def delete_registration(reg_id: Any) -> None:
+    """Permanently remove a team registration document."""
+    db = get_db()
+    db.team_registrations.delete_one({"_id": _oid(reg_id)})
+    get_team_registrations.clear()
+    get_bookable_team_names.clear()
+    get_approved_team_names.clear()
 
 
 def team_name_exists(team_name: str) -> bool:
