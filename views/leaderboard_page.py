@@ -27,6 +27,9 @@ def show():
         st.info("No scores yet.")
         return
 
+    # Number of questions determines the max total score (e.g. 5 questions × 10 pts = 50 max)
+    num_questions = len(get_questions())
+
     # Convert result rows into dict format for Streamlit
     # Assign ranks so that tied average scores share the same rank
     data = []
@@ -34,7 +37,13 @@ def show():
     prev_avg = None
     current_rank = 0
     for row in results:
-        avg = row.get("avg_score", 0)
+        # scores.value is the per-judge average across questions on a 0-100 scale.
+        # Multiply by num_questions and divide by 10 to convert to a true point total.
+        # e.g. 2 judges × 5 questions × 10/10 each:
+        #   total_score (raw) = 200  → total = 200 / 10 * 5 = 100
+        #   avg_score   (raw) = 100  → avg   = 100 / 10 * 5 = 50
+        total = round(row.get("total_score", 0) / 10 * num_questions, 2)
+        avg   = round(row.get("avg_score",   0) / 10 * num_questions, 2)
         if prev_avg is None:
             current_rank = 1
         elif avg != prev_avg:
@@ -44,8 +53,8 @@ def show():
             "Rank": rank,
             "Competitor": row["competitor_name"],
             "Number of Judges that entered scores": row["num_scores"],
-            "Total Score": round(row["total_score"], 2),
-            "Average Score": round(avg, 2),
+            "Total Score": total,
+            "Average Score": avg,
         })
         prev_avg = avg
 
