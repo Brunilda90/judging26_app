@@ -15,22 +15,87 @@ Tab 3 — Finals Scores:
   Same matrix + comments for the finals round.
 """
 
+import csv
 import io
+from datetime import datetime
 
 import pandas as pd
 import streamlit as st
 
 from db import (
     get_judges_with_user,
+    get_competitors,
+    get_questions,
     get_prelim_scoring_matrix,
     get_finals_scoring_matrix,
     get_all_prelim_comments_for_competitor,
     get_all_finals_comments_for_competitor,
+    get_answers_for_judge_competitor,
+    get_answers_for_judge_competitor_finals,
     clear_all_prelim_scores,
     clear_all_finals_scores,
 )
 
 _ROUND_LABELS = {"prelims": "🏁 Prelims", "finals": "🏆 Finals"}
+
+
+def _build_detailed_csv(is_finals: bool) -> bytes:
+    """Build a per-judge × per-competitor × per-question CSV and return as UTF-8 bytes."""
+    all_judges   = get_judges_with_user()
+    round_key    = "finals" if is_finals else "prelims"
+    judges       = [j for j in all_judges if j.get("judge_round", "prelims") == round_key]
+    competitors  = get_competitors()
+    questions    = get_questions()
+    answers_fn   = get_answers_for_judge_competitor_finals if is_finals else get_answers_for_judge_competitor
+
+    q_headers  = [f"Q: {q['prompt']}" for q in questions]
+    fieldnames = [
+        "Judge Name", "Username", "Judge Email",
+        "Competitor", "Competitor Notes",
+    ] + q_headers + ["Average Score (0-10)", "Total Score"]
+
+    num_questions = len(questions)
+    buf    = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=fieldnames)
+    writer.writeheader()
+
+    for j in judges:
+        j_id    = j.get("id")
+        j_name  = j.get("name", "")
+        j_user  = j.get("username", "")
+        j_email = j.get("email", "")
+        for c in competitors:
+            row = {
+                "Judge Name":       j_name,
+                "Username":         j_user,
+                "Judge Email":      j_email,
+                "Competitor":       c.get("name", ""),
+                "Competitor Notes": c.get("notes", ""),
+            }
+            answers = answers_fn(j_id, c.get("id"))
+            vals = []
+            for q in questions:
+                raw = answers.get(q.get("id"))
+                if raw is None:
+                    cell = ""
+                else:
+                    try:
+                        cell = float(raw) / 10.0   # stored 0-100; display 0-10
+                    except Exception:
+                        cell = raw
+                row[f"Q: {q['prompt']}"] = cell
+                if cell != "":
+                    try:
+                        vals.append(float(cell))
+                    except Exception:
+                        pass
+            avg   = round(sum(vals) / len(vals), 2) if vals else ""
+            total = round(sum(vals), 2) if vals else ""
+            row["Average Score (0-10)"] = avg
+            row["Total Score"]          = total
+            writer.writerow(row)
+
+    return buf.getvalue().encode("utf-8")
 
 
 def _judge_assignments_tab():
@@ -259,6 +324,16 @@ def show():
         st.divider()
         _score_matrix_tab("Prelims", is_finals=False)
 
+        st.divider()
+        st.download_button(
+            label="⬇️ Export Detailed Prelims Submissions (CSV)",
+            data=_build_detailed_csv(is_finals=False),
+            file_name=f"prelims_detailed_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv",
+            help="Per-judge × per-competitor breakdown with individual question scores",
+            key="so_dl_prelims_detailed",
+        )
+
     with tab_finals:
         st.subheader("Finals Scoring Matrix")
         st.caption(
@@ -293,3 +368,13 @@ def show():
 
         st.divider()
         _score_matrix_tab("Finals", is_finals=True)
+
+        st.divider()
+        st.download_button(
+            label="⬇️ Export Detailed Finals Submissions (CSV)",
+            data=_build_detailed_csv(is_finals=True),
+            file_name=f"finals_detailed_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv",
+            help="Per-judge × per-competitor breakdown with individual question scores",
+            key="so_dl_finals_detailed",
+        )

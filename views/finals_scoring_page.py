@@ -19,7 +19,6 @@ from db import (
     get_questions,
     get_intro_message,
     get_prelim_top6,
-    get_prelim_slot_map,
     get_team_registrations,
     get_answers_for_judge_competitor_finals,
     save_answers_for_judge_finals,
@@ -764,9 +763,8 @@ def show():
 
     # st.divider()
 
-    # Load registrations for member details and prelim slot map
+    # Load registrations for member details
     all_registrations = get_team_registrations()
-    prelim_slot_map   = get_prelim_slot_map()
 
     # ── Team selector ─────────────────────────────────────────────────────────
     st.markdown('<p class="ah-section">Select Finalist to Score</p>', unsafe_allow_html=True)
@@ -776,9 +774,7 @@ def show():
     for team in top6:
         cid       = team["competitor_id"]
         is_scored = cid in finals_scores_map and finals_scores_map[cid] > 0
-        slot      = prelim_slot_map.get(team["competitor_name"], "")
-        slot_str  = f"  —  {slot}" if slot else ""
-        label     = f"{'✅' if is_scored else '⏳'}  {team['competitor_name']}{slot_str}"
+        label     = f"{'✅' if is_scored else '⏳'}  {team['competitor_name']}"
         option_labels.append(label)
         comp_by_label[label] = team
 
