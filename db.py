@@ -626,7 +626,7 @@ def get_team_by_member_email(email: str):
 
 # ── Prelim Booking constants ────────────────────────────────────────────────────
 
-PRELIM_ROOMS: list = ["N200", "N217", "N300A"]
+PRELIM_ROOMS: list = ["N200", "N217", "ABSC Lounge 3rd Floor"]
 
 PRELIM_SLOTS: list = [
     "2:00 PM – 2:10 PM",
@@ -863,13 +863,13 @@ MENTOR_ROOM_MAP: dict = {
     "Mentor 2": "N200",
     "Mentor 3": "N217",
     "Mentor 4": "N217",
-    "Mentor 5": "N300A",
-    "Mentor 6": "N300A",
-    "Mentor 7": "N300A",
+    "Mentor 5": "ABSC Lounge 3rd Floor",
+    "Mentor 6": "ABSC Lounge 3rd Floor",
+    "Mentor 7": "ABSC Lounge 3rd Floor",
 }
 
 # One robot per room — the room name IS the robot identifier
-SCHED_ROBOT_ROOMS: list = ["N200", "N217", "N300A"]
+SCHED_ROBOT_ROOMS: list = ["N200", "N217", "ABSC Lounge 3rd Floor"]
 
 SCHED_FRIDAY_SLOTS: list = [
     "Fri Mar 6 \u00b7 6:20 \u2013 6:40 PM",

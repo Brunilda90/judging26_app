@@ -354,7 +354,7 @@ def _mentor_rooms_ordered() -> list:
 
 def _render_mentor_grid(mentor_booked_map: dict, my_team: str):
     """Mentor availability grid.
-    Rows = time slots.  Columns = Rooms (N200, N217, N300A).
+    Rows = time slots.  Columns = Rooms (N200, N217, ABSC Lounge 3rd Floor).
 
     Cell states:
       ⭐ You   — this team has a booking in this room at this slot
@@ -415,7 +415,7 @@ def _render_mentor_grid(mentor_booked_map: dict, my_team: str):
 
 def _render_robot_grid(robot_booked_map: dict, my_team: str):
     """Robot availability grid.
-    Rows = time slots.  Columns = Room N200 / N217 / N300A.
+    Rows = time slots.  Columns = Room N200 / N217 / ABSC Lounge 3rd Floor.
     """
     col_widths = [2.0] + [1.0] * len(SCHED_ROBOT_ROOMS)
 
