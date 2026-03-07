@@ -629,9 +629,6 @@ def get_team_by_member_email(email: str):
 PRELIM_ROOMS: list = ["N200", "N217", "ABSC Lounge 3rd Floor"]
 
 PRELIM_SLOTS: list = [
-    "2:00 PM – 2:10 PM",
-    "2:10 PM – 2:20 PM",
-    "2:20 PM – 2:30 PM",
     "2:30 PM – 2:40 PM",
     "2:40 PM – 2:50 PM",
     "2:50 PM – 3:00 PM",
